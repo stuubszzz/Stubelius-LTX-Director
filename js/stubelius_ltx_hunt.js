@@ -124,20 +124,39 @@ app.registerExtension({
   async setup() { await fetchLists(); },
   nodeCreated(node) {
     if (node.comfyClass !== "StubeliusLTXSeedHunt") return;
+    const widget = (node.widgets || []).find(w => w.name === "slots_json");
+    if (!widget) return;
+
+    let healed;
     try {
-      const widget = (node.widgets || []).find(w => w.name === "slots_json");
-      if (!widget) return;
-      // self-heal a drifted/garbage value BEFORE building (writes valid JSON back)
-      const healed = readSlots(widget);
+      healed = readSlots(widget);
       writeSlots(node, widget, healed);
-      // hide the raw slots_json textbox - the panel is the UI (kept in the store, still serialized)
-      widget.type = "hidden";
-      widget.computeSize = () => [0, -4];
-      const panel = buildPanel(node, widget);
-      node.addDOMWidget("stub_hunt_panel", "div", panel, { serialize: false });
-      node.size[0] = Math.max(node.size[0], 430);
     } catch (e) {
-      console.error("[StubeliusLTX] hunt panel build failed:", e);
+      console.error("[StubeliusLTX] readSlots/writeSlots threw:", e && e.stack || e);
+      healed = defaultSlots();
     }
+
+    let panel;
+    try {
+      panel = buildPanel(node, widget);
+    } catch (e) {
+      console.error("[StubeliusLTX] buildPanel threw:", e && e.stack || e);
+      return;   // leave the raw slots_json widget usable as fallback
+    }
+
+    // hide the raw textbox only AFTER the panel is safely built
+    try { widget.type = "hidden"; widget.computeSize = () => [0, -4]; } catch (e) {}
+
+    try {
+      node.addDOMWidget("stub_hunt_panel", "div", panel, { serialize: false });
+    } catch (e) {
+      console.error("[StubeliusLTX] addDOMWidget threw:", e && e.stack || e);
+      // fallback: some frontends expose a 3-arg signature
+      try { node.addDOMWidget("stub_hunt_panel", panel, { serialize: false }); }
+      catch (e2) { console.error("[StubeliusLTX] addDOMWidget 3-arg also threw:", e2 && e2.stack || e2);
+                   try { widget.type = "text"; } catch(e3){}  // un-hide raw widget
+                   return; }
+    }
+    try { node.size[0] = Math.max(node.size[0], 430); node.setDirtyCanvas(true, true); } catch (e) {}
   },
 });
