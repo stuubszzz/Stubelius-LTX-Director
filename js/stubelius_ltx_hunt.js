@@ -16,15 +16,31 @@ async function fetchLists() {
   } catch (e) { console.warn("[StubeliusLTX] sampler list fetch failed", e); }
 }
 
-function readSlots(widget) {
-  try {
-    const v = JSON.parse(widget.value || "[]");
-    if (Array.isArray(v)) { while (v.length < 4) v.push({ enable: v.length === 0 }); return v; }
-  } catch (e) { /* fall through */ }
+function defaultSlots() {
   return [{ enable: true, seed: 42, sampler: "euler", scheduler: "linear_quadratic", steps: 12, cfg: 1.0 },
           { enable: false, seed: 1000045, sampler: "euler", scheduler: "linear_quadratic", steps: 12, cfg: 1.0 },
           { enable: false, seed: 2000048, sampler: "euler", scheduler: "linear_quadratic", steps: 12, cfg: 1.0 },
           { enable: false, seed: 3000051, sampler: "euler", scheduler: "linear_quadratic", steps: 12, cfg: 1.0 }];
+}
+function readSlots(widget) {
+  const def = defaultSlots();
+  let v;
+  try { v = JSON.parse(widget && widget.value); } catch (e) { v = null; }
+  if (!Array.isArray(v)) return def;
+  // coerce each entry to a well-formed slot, filling from defaults
+  const out = [];
+  for (let i = 0; i < 4; i++) {
+    const s = (v[i] && typeof v[i] === "object") ? v[i] : {};
+    out.push({
+      enable: typeof s.enable === "boolean" ? s.enable : (i === 0),
+      seed: Number.isFinite(+s.seed) ? +s.seed : def[i].seed,
+      sampler: typeof s.sampler === "string" ? s.sampler : "euler",
+      scheduler: typeof s.scheduler === "string" ? s.scheduler : "linear_quadratic",
+      steps: Number.isFinite(+s.steps) ? +s.steps : 12,
+      cfg: Number.isFinite(+s.cfg) ? +s.cfg : 1.0,
+    });
+  }
+  return out;
 }
 
 function writeSlots(node, widget, slots) {
@@ -108,10 +124,20 @@ app.registerExtension({
   async setup() { await fetchLists(); },
   nodeCreated(node) {
     if (node.comfyClass !== "StubeliusLTXSeedHunt") return;
-    const widget = (node.widgets || []).find(w => w.name === "slots_json");
-    if (!widget) return;
-    const panel = buildPanel(node, widget);
-    node.addDOMWidget("stub_hunt_panel", "div", panel, { serialize: false });
-    node.size[0] = Math.max(node.size[0], 430);
+    try {
+      const widget = (node.widgets || []).find(w => w.name === "slots_json");
+      if (!widget) return;
+      // self-heal a drifted/garbage value BEFORE building (writes valid JSON back)
+      const healed = readSlots(widget);
+      writeSlots(node, widget, healed);
+      // hide the raw slots_json textbox - the panel is the UI (kept in the store, still serialized)
+      widget.type = "hidden";
+      widget.computeSize = () => [0, -4];
+      const panel = buildPanel(node, widget);
+      node.addDOMWidget("stub_hunt_panel", "div", panel, { serialize: false });
+      node.size[0] = Math.max(node.size[0], 430);
+    } catch (e) {
+      console.error("[StubeliusLTX] hunt panel build failed:", e);
+    }
   },
 });
