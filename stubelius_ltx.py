@@ -285,8 +285,8 @@ class StubeliusLTXRefine:
                 "upscale_model": ("LATENT_UPSCALE_MODEL",),
                 "guide_data": ("GUIDE_DATA",),
                 "candidate_1": ("LATENT", {"lazy": True}),
-                "candidate": ("INT", {"default": 1, "min": 1, "max": 4,
-                              "tooltip": "Which hunt slot to refine."}),
+                "candidate": ("INT", {"default": 0, "min": 0, "max": 4,
+                              "tooltip": "0 = WAIT (hunt only, refine blocks). Set 1-4 after reviewing candidates, then re-queue."}),
                 "sync_from_hunt": ("BOOLEAN", {"default": True}),
                 "audio_mode": (["keep candidate audio (locked)", "regenerate in pass 2"],
                                {"default": "keep candidate audio (locked)"}),
@@ -325,7 +325,7 @@ class StubeliusLTXRefine:
         c = _coerce_int(candidate, 0)
         if 1 <= c <= 4 and kwargs.get(f"candidate_{c}") is None:
             return [f"candidate_{c}"]
-        return []
+        return []  # candidate 0/invalid: request nothing, node blocks in refine()
 
     @classmethod
     def VALIDATE_INPUTS(cls, polish_steps=None, refine_denoise=None, seed=None, cfg=None,
@@ -346,7 +346,12 @@ class StubeliusLTXRefine:
                candidate_2=None, candidate_3=None, candidate_4=None,
                motion_guide_data=None):
 
-        candidate = _coerce_int(candidate, 1)
+        candidate = _coerce_int(candidate, 0)
+        if candidate < 1:
+            log.info("[StubeliusLTX] Refine on WAIT (candidate=0): hunt only. Set candidate 1-4 and re-queue.")
+            from comfy_execution.graph import ExecutionBlocker
+            b = ExecutionBlocker(None)
+            return (b, b, b, "Refine waiting - pick a candidate (1-4) and re-queue.")
         polish_steps = _coerce_int(polish_steps, 4)
         refine_denoise = _coerce_float(refine_denoise, 0.42)
         cfg = _coerce_float(cfg, 1.0)
