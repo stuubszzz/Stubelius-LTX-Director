@@ -30,7 +30,7 @@ from comfy_api.latest import io
 # 2.5. Nothing is deleted - flip this to True and it all comes back. The guard lives here,
 # where the feature is APPLIED, and not only in the UI: a timeline saved on 2.3 still
 # arrives carrying reference_mode, and hiding a button does not stop that.
-REFERENCE_FEATURES = False
+REFERENCE_FEATURES = True  # Stubelius: re-enabled with the 2.5 MSR engine
 
 ASSET_SUBFOLDER = "cglide"
 LEGACY_ASSET_SUBFOLDERS = ("whatdreamscost",)
@@ -129,6 +129,8 @@ def _preprocess_prompts_with_characters(global_prompt, local_prompts, char1="", 
         ["@character1", "@char1", "@ref1"],
         ["@character2", "@char2", "@ref2"],
         ["@character3", "@char3", "@ref3"],
+        ["@character4", "@char4", "@ref4"],
+        ["@character5", "@char5", "@ref5"],
     ]
 
     def _sub(text):
@@ -1653,75 +1655,48 @@ class LTXDirector(io.ComfyNode):
                 _resize_image(c, latent_w, latent_h, resize_method, divisible_by) for c in _selected
             ]
 
-            # Scene background = first timeline image (already in guide_data), else black.
-            scene_images = list(guide_data["images"])
-            if scene_images:
-                bg_slide = scene_images[0]
-                if bg_slide.shape[1] != latent_h or bg_slide.shape[2] != latent_w:
-                    bg_slide = _resize_image(bg_slide, latent_w, latent_h, resize_method, divisible_by)
-            else:
-                bg_slide = torch.zeros((1, latent_h, latent_w, 3), dtype=torch.float32)
+            # ============ STUBELIUS MSR25 ENGINE (LTX-2.5) ============
+            # 2.5 MSR is NOT a slideshow prefix: each reference becomes a slot-embedded
+            # keyframe at a negative temporal position (Licon LTX-2.5 convention), injected
+            # by the guide node AFTER the standard timeline guides. The latent stays clean,
+            # the relay spans only the clean region, and timeline image/video guides
+            # (I2V anchor + union-control motion) keep working exactly as in OFF mode.
+            _msr_frames = int(tdata.get("msr_prefix_frames", 33) or 33)
+            _msr_frames = 25 if _msr_frames == 25 else 33  # 2.5 supports 25/33 only
 
-            # Build the slideshow: characters then background, distributed across MSR_PREFIX_FRAMES.
-            slideshow_sources = identity_images + [bg_slide]
-            base_count = MSR_PREFIX_FRAMES // len(slideshow_sources)
-            remainder = MSR_PREFIX_FRAMES % len(slideshow_sources)
-            slideshow_tensors = []
-            for index, src_img in enumerate(slideshow_sources):
-                repeats = base_count + (1 if index < remainder else 0)
-                slideshow_tensors.extend([src_img[0]] * repeats)
-            slideshow_video = torch.stack(slideshow_tensors)
+            _msr25_refs = []
+            for _si, _img in enumerate(identity_images[:4]):
+                _msr25_refs.append(("ref%d" % (_si + 1), _img, False))
 
-            keyframe_images = slideshow_sources
-            # Prefix length is user-selectable (Licon V1: 17/25/33/41; V2 adds 49/57/65).
-            # Read from the timeline, validate against the allowed 8n+1 set, else default.
-            _msr_frames = int(tdata.get("msr_prefix_frames", MSR_PREFIX_FRAMES) or MSR_PREFIX_FRAMES)
-            if _msr_frames not in (17, 25, 33, 41, 49, 57, 65):
-                log.warning("[LTXDirector] Invalid msr_prefix_frames=%s, using %d.", _msr_frames, MSR_PREFIX_FRAMES)
-                _msr_frames = MSR_PREFIX_FRAMES
-            prefix_latents = ((_msr_frames - 1) // 8) + 1
-            tail_latents = prefix_latents
-            total_latent_frames = clean_latent_frames + tail_latents
-            tail_pixels = tail_latents * 8
-
-            # Relay conditioning over the runtime length: clean -> locals, tail -> global.
-            local_part = local_prompts.strip() if local_prompts.strip() else global_prompt
-            clean_lengths = segment_lengths.strip() if segment_lengths.strip() else str(duration_frames)
-            injected_local = f"{local_part} | {global_prompt}"
-            injected_lengths = f"{clean_lengths},{tail_pixels}"
-
-            dummy_full = {"samples": torch.zeros(
-                [1, 128, total_latent_frames, latent_h // 32, latent_w // 32], device=_dev,
-            )}
-            patched, conditioning = _encode_relay(
-                model, clip, dummy_full, global_prompt, injected_local, injected_lengths, epsilon, disable_relay,
-            )
-
-            # Clean base latent (the true visible region); the guide node pads + appends keyframes per stage.
             if optional_latent is None:
-                latent = {
-                    "samples": torch.zeros([1, 128, clean_latent_frames, latent_h // 32, latent_w // 32], device=_dev),
-                    "noise_mask": torch.ones((1, 1, clean_latent_frames, latent_h // 32, latent_w // 32), dtype=torch.float32, device=_dev),
-                }
+                samples = torch.zeros(
+                    [1, 128, clean_latent_frames, latent_h // 32, latent_w // 32], device=_dev,
+                )
+                latent = {"samples": samples}
             else:
                 latent = optional_latent
 
-            # Hand the RAW full-res references to the guide node via guide_data["msr"].
-            guide_data = {
-                "images": [], "insert_frames": [], "strengths": [], "frame_rate": float(frame_rate),
-                "msr": {
-                    "slideshow": slideshow_video,
-                    "keyframes": keyframe_images,
-                    "prefix_latents": int(prefix_latents),
-                    "strength": float(reference_strength),
-                    "downscale": float(MSR_LATENT_DOWNSCALE),
-                    "clean_latent_frames": int(clean_latent_frames),
-                    "negative": conditioning_neg,
-                },
+            # The UI sends a SHORTENED global prompt in MSR mode (2.3 slideshow
+            # convention). On 2.5, slot retrieval is text-anchored, so recover the
+            # FULL prompt from the timeline and swap @refN for the full slot
+            # descriptions before encoding.
+            _full_gp = (tdata.get("global_prompt") or "").strip() or global_prompt
+            _gp25, _lp25 = _preprocess_prompts_with_characters(
+                _full_gp, local_prompts, char1_val, char2_val, char3_val, skip_empty=False,
+            )
+            log.info("[LTXDirector] Stubelius MSR25: using full timeline prompt (%d chars).", len(_gp25 or ""))
+            patched, conditioning = _encode_relay(
+                model, clip, latent, _gp25, _lp25, segment_lengths, epsilon, disable_relay,
+            )
+
+            guide_data["msr25"] = {
+                "references": _msr25_refs,
+                "strength": float(reference_strength),
+                "reference_frames": int(_msr_frames),
             }
             log.info(
-                "[LTXDirector] Licon MSR Engine: clean=%d, tail=%d (prefix), %d keyframes for the guide node.",
-                clean_latent_frames, tail_latents, len(keyframe_images),
+                "[LTXDirector] Stubelius MSR25 Engine: %d references, reference_frames=%d, clean=%d latent frames.",
+                len(_msr25_refs), _msr_frames, clean_latent_frames,
             )
 
         else:

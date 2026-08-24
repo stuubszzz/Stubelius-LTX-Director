@@ -22,7 +22,7 @@ const MIN_SEGMENT_LENGTH = 6;
 // mode dropdown, the MSR prefix row and the Analyze backend all come back exactly as
 // they were. Python has a matching guard so old timelines carrying ref data cannot
 // reach the broken path either.
-const REFERENCE_FEATURES = false;
+const REFERENCE_FEATURES = true; // Stubelius: 2.5 MSR engine
 const MAX_THUMBNAIL_DIM = 512; // Increased to maintain quality for taller images
 
 const HIDDEN_WIDGET_NAMES = ["timeline_data", "local_prompts", "segment_lengths", "guide_strength", "audio_data", "use_custom_audio", "inpaint_audio", "use_custom_motion", "override_audio"];
@@ -9689,7 +9689,9 @@ class TimelineEditor {
     const suggestions = [
       { tag: "@ref1", label: "Reference 1" },
       { tag: "@ref2", label: "Reference 2" },
-      { tag: "@ref3", label: "Reference 3" }
+      { tag: "@ref3", label: "Reference 3" },
+      { tag: "@ref4", label: "Reference 4" },
+      { tag: "@ref5", label: "Reference 5" }
     ];
 
     let activeIndex = 0;

@@ -17,6 +17,7 @@ time and kwargs are filtered against each node's live INPUT_TYPES, so version
 drift in the CS / LTXVideo packs cannot break the calls.
 """
 
+import json
 import logging
 
 import torch
@@ -115,7 +116,8 @@ def _schedulers():
 
 
 def _guide(positive, negative, vae, latent, guide_data, motion_guide_data, model,
-           ic_lora_name, ic_lora_strength, scale_by, image_attention_strength, msr_strength):
+           ic_lora_name, ic_lora_strength, scale_by, image_attention_strength, msr_strength,
+           msr_lora_name="None", msr_lora_strength=1.0):
     return call_node(
         "LTXDirectorGuideCS25",
         positive=positive, negative=negative, vae=vae, latent=latent,
@@ -124,6 +126,7 @@ def _guide(positive, negative, vae, latent, guide_data, motion_guide_data, model
         scale_by=scale_by, upscale_method="bicubic",
         image_attention_strength=image_attention_strength,
         crop="center", auto_snap_ic_grid=True, msr_strength=msr_strength,
+        msr_lora_name=msr_lora_name, msr_lora_strength=msr_lora_strength,
     )
 
 
@@ -188,16 +191,14 @@ class StubeliusLTXSeedHunt:
                                    "tooltip": "First-pass scale. 0.5 recommended for IC-LoRA."}),
             "image_attention_strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
             "msr_strength": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.05}),
+            "msr_lora_name": (["None"] + loras, {"default": "None", "tooltip": "LTX-2.5 MSR LoRA (Licon V1). Required when the Director ref option is Licon MSR."}),
+            "msr_lora_strength": ("FLOAT", {"default": 1.0, "min": -100.0, "max": 100.0, "step": 0.01}),
             "tile_size": ("INT", {"default": 512, "min": 64, "max": 1024, "step": 32}),
             "tile_overlap": ("INT", {"default": 64, "min": 16, "max": 256, "step": 16}),
         }
-        for s in (1, 2, 3, 4):
-            req[f"enable_{s}"] = ("BOOLEAN", {"default": s == 1})
-            req[f"seed_{s}"] = ("INT", {"default": 42 + (s - 1) * 1000003, "min": 0, "max": 0xffffffffffffffff})
-            req[f"sampler_{s}"] = (_samplers(), {"default": "euler"})
-            req[f"scheduler_{s}"] = (_schedulers(), {"default": "linear_quadratic" if "linear_quadratic" in _schedulers() else "simple"})
-            req[f"steps_{s}"] = ("INT", {"default": 12, "min": 1, "max": 100})
-            req[f"cfg_{s}"] = ("FLOAT", {"default": 1.0, "min": 1.0, "max": 20.0, "step": 0.1})
+        req["slots_json"] = ("STRING", {"multiline": True, "default": '[{"enable": true, "seed": 42, "sampler": "euler", "scheduler": "linear_quadratic", "steps": 12, "cfg": 1.0}, {"enable": false, "seed": 1000045, "sampler": "euler", "scheduler": "linear_quadratic", "steps": 12, "cfg": 1.0}, {"enable": false, "seed": 2000048, "sampler": "euler", "scheduler": "linear_quadratic", "steps": 12, "cfg": 1.0}, {"enable": false, "seed": 3000051, "sampler": "euler", "scheduler": "linear_quadratic", "steps": 12, "cfg": 1.0}]',
+            "tooltip": "Per-slot hunt config (JSON) - normally edited via the 2x2 gold panel above. "
+            "Hand-editable fallback: list of up to 4 objects with enable/seed/sampler/scheduler/steps/cfg."})
         return {"required": req, "optional": {"motion_guide_data": ("MOTION_GUIDE_DATA",)}}
 
     RETURN_TYPES = ("IMAGE", "AUDIO", "LATENT", "IMAGE", "AUDIO", "LATENT",
@@ -209,25 +210,36 @@ class StubeliusLTXSeedHunt:
 
     def hunt(self, model, positive, negative, vae, audio_vae, latent, audio_latent,
              guide_data, ic_lora_name, ic_lora_strength, scale_by,
-             image_attention_strength, msr_strength, tile_size, tile_overlap,
-             motion_guide_data=None, **slots):
+             image_attention_strength, msr_strength, msr_lora_name, msr_lora_strength,
+             tile_size, tile_overlap, slots_json="", motion_guide_data=None, **_legacy):
+
+        try:
+            cfgs = json.loads(slots_json) if str(slots_json).strip() else []
+            assert isinstance(cfgs, list)
+        except Exception:
+            log.warning("[StubeliusLTX] slots_json invalid - falling back to slot 1 defaults.")
+            cfgs = []
+        while len(cfgs) < 4:
+            cfgs.append({"enable": len(cfgs) == 0})
 
         # guides are seed-independent: build once, share across all slots
         pos_g, neg_g, lat_g, model_g, _ = _guide(
             positive, negative, vae, latent, guide_data, motion_guide_data, model,
             ic_lora_name, _coerce_float(ic_lora_strength, 0.6), _coerce_float(scale_by, 0.5),
-            _coerce_float(image_attention_strength, 1.0), _coerce_float(msr_strength, 0.0))
+            _coerce_float(image_attention_strength, 1.0), _coerce_float(msr_strength, 0.0),
+            msr_lora_name, _coerce_float(msr_lora_strength, 1.0))
 
         outs, ran = [], []
         for s in (1, 2, 3, 4):
-            if not _coerce_bool(slots.get(f"enable_{s}"), s == 1):
+            c = cfgs[s - 1] if isinstance(cfgs[s - 1], dict) else {}
+            if not _coerce_bool(c.get("enable"), s == 1):
                 outs.extend([_blocker(), _blocker(), _blocker()])
                 continue
-            seed = _coerce_int(slots.get(f"seed_{s}"), 42)
-            sampler_name = slots.get(f"sampler_{s}") or "euler"
-            scheduler = slots.get(f"scheduler_{s}") or "simple"
-            steps = _coerce_int(slots.get(f"steps_{s}"), 12)
-            cfg = _coerce_float(slots.get(f"cfg_{s}"), 1.0)
+            seed = _coerce_int(c.get("seed"), 42 + (s - 1) * 1000003)
+            sampler_name = str(c.get("sampler") or "euler")
+            scheduler = str(c.get("scheduler") or "simple")
+            steps = _coerce_int(c.get("steps"), 12)
+            cfg = _coerce_float(c.get("cfg"), 1.0)
             log.info("[StubeliusLTX] hunt slot %d: seed=%d %s/%s steps=%d cfg=%.2f",
                      s, seed, sampler_name, scheduler, steps, cfg)
             sigmas = call_node("BasicScheduler", model=model_g, scheduler=scheduler,
@@ -291,6 +303,8 @@ class StubeliusLTXRefine:
                 "image_attention_strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
                 "msr_strength": ("FLOAT", {"default": 0.4, "min": 0.0, "max": 1.0, "step": 0.05,
                                  "tooltip": "0.4 recommended on the refine stage (per CS guidance)."}),
+                "msr_lora_name": (["None"] + loras, {"default": "None"}),
+                "msr_lora_strength": ("FLOAT", {"default": 1.0, "min": -100.0, "max": 100.0, "step": 0.01}),
                 "tile_size": ("INT", {"default": 512, "min": 64, "max": 1024, "step": 32}),
                 "tile_overlap": ("INT", {"default": 64, "min": 16, "max": 256, "step": 16}),
             },
@@ -327,6 +341,7 @@ class StubeliusLTXRefine:
                scheduler="simple", cfg=1.0, seed=42,
                ic_lora_name="None", ic_lora_strength=0.6,
                image_attention_strength=1.0, msr_strength=0.4,
+               msr_lora_name="None", msr_lora_strength=1.0,
                tile_size=512, tile_overlap=64,
                candidate_2=None, candidate_3=None, candidate_4=None,
                motion_guide_data=None):
@@ -370,7 +385,8 @@ class StubeliusLTXRefine:
         pos2, neg2, lat2, model2, _ = _guide(
             positive, negative, vae, upsampled, guide_data, motion_guide_data, model,
             ic_lora_name, _coerce_float(ic_lora_strength, 0.6), 1.0,
-            _coerce_float(image_attention_strength, 1.0), _coerce_float(msr_strength, 0.4))
+            _coerce_float(image_attention_strength, 1.0), _coerce_float(msr_strength, 0.4),
+            msr_lora_name, _coerce_float(msr_lora_strength, 1.0))
 
         if str(sigma_mode).startswith("manual"):
             sigmas = _parse_sigmas(manual_sigmas)

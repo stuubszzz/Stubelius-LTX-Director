@@ -1,0 +1,117 @@
+// Stubelius LTX Seed Hunt — 2x2 gold slot panel writing the slots_json widget.
+import { app } from "../../scripts/app.js";
+
+const GOLD = "#FFD700", DIM = "#b8960a", TXT = "#f5e5a0", INK = "#0d0b06", BODY = "#14100a";
+let SAMPLERS = ["euler", "euler_ancestral", "dpmpp_2m", "res_multistep", "uni_pc"];
+let SCHEDULERS = ["linear_quadratic", "simple", "normal", "beta", "karras", "exponential"];
+
+async function fetchLists() {
+  try {
+    const [ks, bs] = await Promise.all([
+      fetch("/object_info/KSamplerSelect").then(r => r.json()),
+      fetch("/object_info/BasicScheduler").then(r => r.json()),
+    ]);
+    SAMPLERS = ks.KSamplerSelect.input.required.sampler_name[0] || SAMPLERS;
+    SCHEDULERS = bs.BasicScheduler.input.required.scheduler[0] || SCHEDULERS;
+  } catch (e) { console.warn("[StubeliusLTX] sampler list fetch failed", e); }
+}
+
+function readSlots(widget) {
+  try {
+    const v = JSON.parse(widget.value || "[]");
+    if (Array.isArray(v)) { while (v.length < 4) v.push({ enable: v.length === 0 }); return v; }
+  } catch (e) { /* fall through */ }
+  return [{ enable: true, seed: 42, sampler: "euler", scheduler: "linear_quadratic", steps: 12, cfg: 1.0 },
+          { enable: false, seed: 1000045, sampler: "euler", scheduler: "linear_quadratic", steps: 12, cfg: 1.0 },
+          { enable: false, seed: 2000048, sampler: "euler", scheduler: "linear_quadratic", steps: 12, cfg: 1.0 },
+          { enable: false, seed: 3000051, sampler: "euler", scheduler: "linear_quadratic", steps: 12, cfg: 1.0 }];
+}
+
+function writeSlots(node, widget, slots) {
+  const v = JSON.stringify(slots);
+  widget.value = v;                                     // live widget
+  const idx = (node.widgets || []).indexOf(widget);      // positional store
+  if (Array.isArray(node.widgets_values) && idx >= 0) node.widgets_values[idx] = v;
+  if (node.widgets_values_named && typeof node.widgets_values_named === "object") {
+    node.widgets_values_named[widget.name] = v;          // named store
+  }
+  if (widget.callback) widget.callback(v, app.canvas, node);
+  app.graph?.change?.();
+}
+
+function el(tag, style, parent) {
+  const e = document.createElement(tag);
+  Object.assign(e.style, style || {});
+  if (parent) parent.appendChild(e);
+  return e;
+}
+
+function buildPanel(node, widget) {
+  const root = el("div", {
+    display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px",
+    background: INK, border: `1px solid ${DIM}`, borderRadius: "8px",
+    padding: "6px", fontFamily: "monospace", fontSize: "11px", color: TXT,
+  });
+  const slots = readSlots(widget);
+  const sync = () => writeSlots(node, widget, slots);
+
+  slots.forEach((slot, i) => {
+    const cell = el("div", {
+      background: BODY, border: `1px solid ${slot.enable ? GOLD : "#3a3018"}`,
+      borderRadius: "6px", padding: "5px", display: "flex",
+      flexDirection: "column", gap: "3px",
+    }, root);
+
+    const head = el("div", { display: "flex", justifyContent: "space-between", alignItems: "center" }, cell);
+    const title = el("span", { color: GOLD, fontWeight: "700" }, head);
+    title.textContent = `SLOT ${i + 1}`;
+    const en = el("input", { accentColor: GOLD }, head);
+    en.type = "checkbox"; en.checked = !!slot.enable;
+    en.onchange = () => { slot.enable = en.checked; cell.style.borderColor = en.checked ? GOLD : "#3a3018"; sync(); };
+
+    const row = (label, input) => {
+      const r = el("div", { display: "flex", justifyContent: "space-between", gap: "4px", alignItems: "center" }, cell);
+      const l = el("span", { color: DIM, minWidth: "38px" }, r); l.textContent = label;
+      r.appendChild(input); return input;
+    };
+    const inputStyle = { background: "#0a0804", color: TXT, border: `1px solid ${DIM}`, borderRadius: "3px", width: "100%", fontSize: "11px" };
+
+    const seed = el("input", inputStyle); seed.type = "number"; seed.value = slot.seed ?? 42;
+    seed.onchange = () => { slot.seed = parseInt(seed.value) || 0; sync(); };
+    row("seed", seed);
+
+    const smp = el("select", inputStyle);
+    SAMPLERS.forEach(s => { const o = document.createElement("option"); o.value = o.textContent = s; smp.appendChild(o); });
+    smp.value = slot.sampler || "euler";
+    smp.onchange = () => { slot.sampler = smp.value; sync(); };
+    row("smplr", smp);
+
+    const sch = el("select", inputStyle);
+    SCHEDULERS.forEach(s => { const o = document.createElement("option"); o.value = o.textContent = s; sch.appendChild(o); });
+    sch.value = slot.scheduler || "linear_quadratic";
+    sch.onchange = () => { slot.scheduler = sch.value; sync(); };
+    row("sched", sch);
+
+    const stepsCfg = el("div", { display: "flex", gap: "4px" }, cell);
+    const steps = el("input", { ...inputStyle, width: "50%" }, stepsCfg);
+    steps.type = "number"; steps.value = slot.steps ?? 12; steps.title = "steps";
+    steps.onchange = () => { slot.steps = parseInt(steps.value) || 12; sync(); };
+    const cfg = el("input", { ...inputStyle, width: "50%" }, stepsCfg);
+    cfg.type = "number"; cfg.step = "0.1"; cfg.value = slot.cfg ?? 1.0; cfg.title = "cfg";
+    cfg.onchange = () => { slot.cfg = parseFloat(cfg.value) || 1.0; sync(); };
+  });
+  return root;
+}
+
+app.registerExtension({
+  name: "stubelius.ltx.huntpanel",
+  async setup() { await fetchLists(); },
+  nodeCreated(node) {
+    if (node.comfyClass !== "StubeliusLTXSeedHunt") return;
+    const widget = (node.widgets || []).find(w => w.name === "slots_json");
+    if (!widget) return;
+    const panel = buildPanel(node, widget);
+    node.addDOMWidget("stub_hunt_panel", "div", panel, { serialize: false });
+    node.size[0] = Math.max(node.size[0], 430);
+  },
+});

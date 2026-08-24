@@ -9,6 +9,7 @@ import comfy
 import comfy.sd
 import comfy.utils
 import folder_paths
+from . import stubelius_msr25_engine as msr25_engine
 import node_helpers
 from comfy_extras import nodes_lt
 from comfy_api.latest import io
@@ -344,6 +345,8 @@ class LTXDirectorGuide:
                 "tile_overlap": ("INT", {"default": 64, "min": 16, "max": 256, "step": 16}),
                 "retake_mode": ("BOOLEAN", {"default": False, "tooltip": "Force Retake Mode. If false, it will still auto-detect Retake Mode from the timeline data."}),
                 "msr_strength": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.05, "tooltip": "Licon MSR only: per-stage reference strength override. 0 = use the Director's value (full pull, right for stage 1). On a refinement/upscale stage set ~0.4 to hold detail without the references repainting the opening (fixes stage-2 mist/ghosting)."}),
+                "msr_lora_name": (["None"] + loras, {"default": "None", "tooltip": "LTX-2.5 MSR LoRA (Licon V1) with reference_slot_embedding weights. Required when the Director's ref option is 'Licon MSR'. Independent of ic_lora_name, which stays free for union control."}),
+                "msr_lora_strength": ("FLOAT", {"default": 1.0, "min": -100.0, "max": 100.0, "step": 0.01, "tooltip": "MSR LoRA model strength."}),
             }
         }
 
@@ -352,7 +355,54 @@ class LTXDirectorGuide:
     FUNCTION = "execute"
 
     @classmethod
-    def execute(cls, positive, negative, vae, latent, guide_data, motion_guide_data=None, model=None, ic_lora_name="None", ic_lora_strength=1.0, scale_by=1.0, upscale_method="bicubic", image_attention_strength=1.0, crop="center", auto_snap_ic_grid=True, use_tiled_encode=False, tile_size=256, tile_overlap=64, retake_mode=False, msr_strength=0.0):
+    def execute(cls, positive, negative, vae, latent, guide_data, motion_guide_data=None, model=None, ic_lora_name="None", ic_lora_strength=1.0, scale_by=1.0, upscale_method="bicubic", image_attention_strength=1.0, crop="center", auto_snap_ic_grid=True, use_tiled_encode=False, tile_size=256, tile_overlap=64, retake_mode=False, msr_strength=0.0, msr_lora_name="None", msr_lora_strength=1.0):
+        """Wrapper: run the standard Director guide, then apply the Stubelius MSR25
+        injection (LTX-2.5 slot-embedded references) as the FINAL conditioning step."""
+        # READ ONLY — never mutate guide_data: the Director hands the SAME dict to
+        # every guide stage, and ComfyUI caches it between queues. Popping the key
+        # here starved the other stage (and every re-queue) of the references.
+        msr25 = (guide_data or {}).get("msr25", None)
+        positive, negative, latent_out, model, latent_downscale_factor = cls._execute_core(
+            positive, negative, vae, latent, guide_data, motion_guide_data=motion_guide_data,
+            model=model, ic_lora_name=ic_lora_name, ic_lora_strength=ic_lora_strength,
+            scale_by=scale_by, upscale_method=upscale_method,
+            image_attention_strength=image_attention_strength, crop=crop,
+            auto_snap_ic_grid=auto_snap_ic_grid, use_tiled_encode=use_tiled_encode,
+            tile_size=tile_size, tile_overlap=tile_overlap, retake_mode=retake_mode,
+            msr_strength=msr_strength,
+        )
+        if msr25 is None:
+            return (positive, negative, latent_out, model, float(latent_downscale_factor))
+
+        if msr_lora_name == "None":
+            raise ValueError(
+                "Licon MSR mode is active on the timeline, but msr_lora_name is 'None'. "
+                "Select the LTX-2.5 MSR LoRA on the LTX Director Guide node."
+            )
+        model, slot_state, msr_downscale = msr25_engine.load_msr25_lora(
+            model, msr_lora_name, msr_lora_strength
+        )
+        strength = float(msr25.get("strength", 1.0))
+        if float(msr_strength) > 0.0:
+            strength = max(0.0, min(1.0, float(msr_strength)))
+        latent_image = latent_out["samples"]
+        noise_mask = latent_out.get("noise_mask")
+        if noise_mask is None:
+            b, _, f, h, w = latent_image.shape
+            noise_mask = torch.ones((b, 1, f, h, w), dtype=torch.float32, device=latent_image.device)
+        positive, negative, latent_image, noise_mask, appended = msr25_engine.inject_msr25(
+            positive, negative, vae, latent_image, noise_mask, slot_state,
+            msr25["references"], strength, msr25.get("reference_frames", 33),
+            downscale=msr_downscale,
+        )
+        prev_crop = _get_exact_crop_count_from_conditioning(positive)
+        new_crop = int(prev_crop) + int(appended)
+        positive = node_helpers.conditioning_set_values(positive, {"nghtdrp_guide_crop_latent_frames": new_crop})
+        negative = node_helpers.conditioning_set_values(negative, {"nghtdrp_guide_crop_latent_frames": new_crop})
+        return (positive, negative, {"samples": latent_image, "noise_mask": noise_mask}, model, float(latent_downscale_factor))
+
+    @classmethod
+    def _execute_core(cls, positive, negative, vae, latent, guide_data, motion_guide_data=None, model=None, ic_lora_name="None", ic_lora_strength=1.0, scale_by=1.0, upscale_method="bicubic", image_attention_strength=1.0, crop="center", auto_snap_ic_grid=True, use_tiled_encode=False, tile_size=256, tile_overlap=64, retake_mode=False, msr_strength=0.0):
         motion_segments = (motion_guide_data or {}).get("segments", []) if motion_guide_data else []
         image_guides_count = len(guide_data.get("images", [])) if guide_data else 0
         print(f"[LTXDirectorGuide] execute started. motion_segments: {len(motion_segments)}, image_guides: {image_guides_count}, ic_lora_name: {ic_lora_name}, model connected: {model is not None}, retake_mode: {retake_mode}")

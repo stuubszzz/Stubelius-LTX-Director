@@ -24,11 +24,6 @@ NODE_CLASS_MAPPINGS = {
     "LTXChunkAssemblerCS25": LTXChunkAssembler,
 }
 
-from .stubelius_ltx import (
-    NODE_CLASS_MAPPINGS as _STUB_NODES,
-    NODE_DISPLAY_NAME_MAPPINGS as _STUB_NAMES,
-)
-
 NODE_DISPLAY_NAME_MAPPINGS = {
     "LTXDirectorCS25": "LTX Director CS (2.5)",
     "LTXDirectorGuideCS25": "LTX Director Guide CS (2.5)",
@@ -42,5 +37,9 @@ WEB_DIRECTORY = "./js"
 
 __all__ = ['NODE_CLASS_MAPPINGS', 'NODE_DISPLAY_NAME_MAPPINGS', 'WEB_DIRECTORY']
 
+from .stubelius_ltx import (
+    NODE_CLASS_MAPPINGS as _STUB_NODES,
+    NODE_DISPLAY_NAME_MAPPINGS as _STUB_NAMES,
+)
 NODE_CLASS_MAPPINGS.update(_STUB_NODES)
 NODE_DISPLAY_NAME_MAPPINGS.update(_STUB_NAMES)
