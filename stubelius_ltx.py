@@ -282,7 +282,7 @@ class StubeliusLTXRefine:
                 "negative": ("CONDITIONING",),
                 "vae": ("VAE",),
                 "audio_vae": ("VAE",),
-                "upscale_model": ("UPSCALE_MODEL",),
+                "upscale_model": ("LATENT_UPSCALE_MODEL",),
                 "guide_data": ("GUIDE_DATA",),
                 "candidate_1": ("LATENT", {"lazy": True}),
                 "candidate": ("INT", {"default": 1, "min": 1, "max": 4,
