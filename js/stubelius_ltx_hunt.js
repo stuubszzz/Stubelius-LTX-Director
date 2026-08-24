@@ -5,15 +5,26 @@ const GOLD = "#FFD700", DIM = "#b8960a", TXT = "#f5e5a0", INK = "#0d0b06", BODY 
 let SAMPLERS = ["euler", "euler_ancestral", "dpmpp_2m", "res_multistep", "uni_pc"];
 let SCHEDULERS = ["linear_quadratic", "simple", "normal", "beta", "karras", "exponential"];
 
+function _firstArray(x) {
+  // object_info fields look like [ ["euler","dpmpp_2m",...], {tooltip:...} ]
+  // dig out the first element that is actually an array of strings.
+  if (Array.isArray(x)) {
+    if (x.every(v => typeof v === "string")) return x;
+    for (const el of x) { const r = _firstArray(el); if (r) return r; }
+  }
+  return null;
+}
 async function fetchLists() {
   try {
     const [ks, bs] = await Promise.all([
       fetch("/object_info/KSamplerSelect").then(r => r.json()),
       fetch("/object_info/BasicScheduler").then(r => r.json()),
     ]);
-    SAMPLERS = ks.KSamplerSelect.input.required.sampler_name[0] || SAMPLERS;
-    SCHEDULERS = bs.BasicScheduler.input.required.scheduler[0] || SCHEDULERS;
-  } catch (e) { console.warn("[StubeliusLTX] sampler list fetch failed", e); }
+    const s = _firstArray(ks?.KSamplerSelect?.input?.required?.sampler_name);
+    const c = _firstArray(bs?.BasicScheduler?.input?.required?.scheduler);
+    if (Array.isArray(s) && s.length) SAMPLERS = s;
+    if (Array.isArray(c) && c.length) SCHEDULERS = c;
+  } catch (e) { console.warn("[StubeliusLTX] sampler list fetch failed, using defaults", e); }
 }
 
 function defaultSlots() {
@@ -97,13 +108,13 @@ function buildPanel(node, widget) {
     row("seed", seed);
 
     const smp = el("select", inputStyle);
-    SAMPLERS.forEach(s => { const o = document.createElement("option"); o.value = o.textContent = s; smp.appendChild(o); });
+    (Array.isArray(SAMPLERS) ? SAMPLERS : []).forEach(s => { const o = document.createElement("option"); o.value = o.textContent = s; smp.appendChild(o); });
     smp.value = slot.sampler || "euler";
     smp.onchange = () => { slot.sampler = smp.value; sync(); };
     row("smplr", smp);
 
     const sch = el("select", inputStyle);
-    SCHEDULERS.forEach(s => { const o = document.createElement("option"); o.value = o.textContent = s; sch.appendChild(o); });
+    (Array.isArray(SCHEDULERS) ? SCHEDULERS : []).forEach(s => { const o = document.createElement("option"); o.value = o.textContent = s; sch.appendChild(o); });
     sch.value = slot.scheduler || "linear_quadratic";
     sch.onchange = () => { slot.scheduler = sch.value; sync(); };
     row("sched", sch);
