@@ -14,16 +14,26 @@ function _firstArray(x) {
   }
   return null;
 }
+let LISTS_LOADED = false;
+async function _tryFetch(path) {
+  const r = await fetch(path);
+  if (!r.ok) throw new Error(path + " -> " + r.status);
+  return r.json();
+}
 async function fetchLists() {
   try {
     const [ks, bs] = await Promise.all([
-      fetch("/object_info/KSamplerSelect").then(r => r.json()),
-      fetch("/object_info/BasicScheduler").then(r => r.json()),
+      _tryFetch("/object_info/KSamplerSelect").catch(() => _tryFetch("/api/object_info/KSamplerSelect")),
+      _tryFetch("/object_info/BasicScheduler").catch(() => _tryFetch("/api/object_info/BasicScheduler")),
     ]);
-    const s = _firstArray(ks?.KSamplerSelect?.input?.required?.sampler_name);
-    const c = _firstArray(bs?.BasicScheduler?.input?.required?.scheduler);
-    if (Array.isArray(s) && s.length) SAMPLERS = s;
-    if (Array.isArray(c) && c.length) SCHEDULERS = c;
+    const sEntry = ks?.KSamplerSelect?.input?.required?.sampler_name;
+    const cEntry = bs?.BasicScheduler?.input?.required?.scheduler;
+    const s = _firstArray(sEntry);
+    const c = _firstArray(cEntry);
+    if (Array.isArray(s) && s.length) { SAMPLERS = s; LISTS_LOADED = true; }
+    if (Array.isArray(c) && c.length) { SCHEDULERS = c; }
+    console.log("[StubeliusLTX] sampler list loaded:", SAMPLERS.length, "samplers,",
+                SCHEDULERS.length, "schedulers");
   } catch (e) { console.warn("[StubeliusLTX] sampler list fetch failed, using defaults", e); }
 }
 
@@ -73,6 +83,11 @@ function el(tag, style, parent) {
   return e;
 }
 
+function _repopulate(sel, list, current) {
+  while (sel.firstChild) sel.removeChild(sel.firstChild);
+  list.forEach(s => { const o = document.createElement("option"); o.value = o.textContent = s; sel.appendChild(o); });
+  sel.value = list.includes(current) ? current : list[0];
+}
 function buildPanel(node, widget) {
   const root = el("div", {
     display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px",
@@ -107,13 +122,13 @@ function buildPanel(node, widget) {
     seed.onchange = () => { slot.seed = parseInt(seed.value) || 0; sync(); };
     row("seed", seed);
 
-    const smp = el("select", inputStyle);
+    const smp = el("select", inputStyle); smp.dataset.kind = "smp";
     (Array.isArray(SAMPLERS) ? SAMPLERS : []).forEach(s => { const o = document.createElement("option"); o.value = o.textContent = s; smp.appendChild(o); });
     smp.value = slot.sampler || "euler";
     smp.onchange = () => { slot.sampler = smp.value; sync(); };
     row("smplr", smp);
 
-    const sch = el("select", inputStyle);
+    const sch = el("select", inputStyle); sch.dataset.kind = "sch";
     (Array.isArray(SCHEDULERS) ? SCHEDULERS : []).forEach(s => { const o = document.createElement("option"); o.value = o.textContent = s; sch.appendChild(o); });
     sch.value = slot.scheduler || "linear_quadratic";
     sch.onchange = () => { slot.scheduler = sch.value; sync(); };
@@ -127,6 +142,15 @@ function buildPanel(node, widget) {
     cfg.type = "number"; cfg.step = "0.1"; cfg.value = slot.cfg ?? 1.0; cfg.title = "cfg";
     cfg.onchange = () => { slot.cfg = parseFloat(cfg.value) || 1.0; sync(); };
   });
+  if (!LISTS_LOADED) {
+    fetchLists().then(() => {
+      if (!LISTS_LOADED) return;
+      root.querySelectorAll("select[data-kind='smp']").forEach((sel, i) =>
+        _repopulate(sel, SAMPLERS, slots[i]?.sampler || "euler"));
+      root.querySelectorAll("select[data-kind='sch']").forEach((sel, i) =>
+        _repopulate(sel, SCHEDULERS, slots[i]?.scheduler || "linear_quadratic"));
+    });
+  }
   return root;
 }
 
@@ -159,7 +183,17 @@ app.registerExtension({
     try { widget.type = "hidden"; widget.computeSize = () => [0, -4]; } catch (e) {}
 
     try {
-      node.addDOMWidget("stub_hunt_panel", "div", panel, { serialize: false });
+      const PANEL_H = 470;
+      const dw = node.addDOMWidget("stub_hunt_panel", "div", panel, { serialize: false });
+      if (dw) {
+        dw.computeSize = (w) => [w || node.size[0], PANEL_H];
+        if (dw.options) dw.options.getHeight = () => PANEL_H;
+      }
+      panel.style.minHeight = (PANEL_H - 10) + "px";
+      panel.style.maxHeight = (PANEL_H - 10) + "px";
+      panel.style.overflowY = "auto";
+      const cs = node.computeSize();
+      node.setSize([Math.max(430, node.size[0]), Math.max(cs[1], node.size[1])]);
     } catch (e) {
       console.error("[StubeliusLTX] addDOMWidget threw:", e && e.stack || e);
       // fallback: some frontends expose a 3-arg signature
