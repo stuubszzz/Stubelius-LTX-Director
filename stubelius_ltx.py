@@ -38,6 +38,17 @@ def _mappings():
     return NODE_CLASS_MAPPINGS
 
 
+def _sentinel_latent():
+    """Inert placeholder emitted on the candidate output of DISABLED hunt slots.
+    ExecutionBlocker on a wired input prunes the consumer node before execute()
+    is ever called (confirmed against the ComfyUI 0.33 executor) - lazy inputs
+    can't save it because the blocker is produced in the same pass. A tiny real
+    latent with a marker flows harmlessly instead; the Refine ignores un-picked
+    slots and blocks cleanly only if the PICKED slot is a sentinel."""
+    import torch
+    return {"samples": torch.zeros(1, 1, 1, 1, 1), "_stub_disabled": True}
+
+
 def _blocker():
     from comfy_execution.graph import ExecutionBlocker
     return ExecutionBlocker(None)
@@ -251,7 +262,7 @@ class StubeliusLTXSeedHunt:
         for s in (1, 2, 3, 4):
             c = cfgs[s - 1] if isinstance(cfgs[s - 1], dict) else {}
             if not _coerce_bool(c.get("enable"), s == 1):
-                outs.extend([_blocker(), _blocker(), _blocker()])
+                outs.extend([_blocker(), _blocker(), _sentinel_latent()])
                 continue
             seed = _coerce_int(c.get("seed"), 42 + (s - 1) * 1000003)
             sampler_name = str(c.get("sampler") or "euler")
@@ -380,6 +391,10 @@ class StubeliusLTXRefine:
 
         cands = {1: candidate_1, 2: candidate_2, 3: candidate_3, 4: candidate_4}
         sel = cands.get(candidate)
+        if isinstance(sel, dict) and sel.get("_stub_disabled"):
+            log.warning("[StubeliusLTX] Candidate %d was not hunted (slot disabled) - "
+                        "enable that slot and re-run the hunt, or pick a hunted slot.", candidate)
+            sel = None
         if sel is None:
             raise ValueError(f"[StubeliusLTX] candidate {candidate} is not connected / was not hunted.")
 
