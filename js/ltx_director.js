@@ -905,7 +905,7 @@ function parseInitial(jsonStr) {
           images: Array.isArray(c.images) ? c.images : [],
           description: c.description || ""
         }));
-        while (parsed.characters.length < 3) {
+        while (parsed.characters.length < 5) {
           parsed.characters.push({ images: [], description: "" });
         }
       }
@@ -9361,13 +9361,15 @@ class TimelineEditor {
       this.timeline.characters = [
         { images: [], description: "" },
         { images: [], description: "" },
+        { images: [], description: "" },
+        { images: [], description: "" },
         { images: [], description: "" }
       ];
     }
 
     this.characterSlots = [];
 
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 5; i++) {
       const slot = document.createElement("div");
       slot.className = "prcs-character-slot";
       slot.dataset.index = i;
@@ -9511,11 +9513,13 @@ class TimelineEditor {
       this.timeline.characters = [
         { images: [], description: "" },
         { images: [], description: "" },
+        { images: [], description: "" },
+        { images: [], description: "" },
         { images: [], description: "" }
       ];
     }
 
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 5; i++) {
       const slot = this.characterSlots[i];
       const data = this.timeline.characters[i] || { images: [], description: "" };
       slot.innerHTML = "";

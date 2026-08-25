@@ -116,7 +116,7 @@ MSR_PREFIX_FRAMES = 41
 MSR_LATENT_DOWNSCALE = 1.0
 
 
-def _preprocess_prompts_with_characters(global_prompt, local_prompts, char1="", char2="", char3="", skip_empty=False):
+def _preprocess_prompts_with_characters(global_prompt, local_prompts, char1="", char2="", char3="", char4="", char5="", skip_empty=False):
     """Invisibly swaps out @ref1 (and legacy @character1/@char1) tags with their slot descriptions.
 
     skip_empty=True leaves a tag untouched when its slot description is empty. Licon MSR
@@ -124,7 +124,7 @@ def _preprocess_prompts_with_characters(global_prompt, local_prompts, char1="", 
     instead of silently deleting the tag from the prompt.
     """
     gp = global_prompt or ""
-    _vals = [char1 or "", char2 or "", char3 or ""]
+    _vals = [char1 or "", char2 or "", char3 or "", char4 or "", char5 or ""]
     _tag_sets = [
         ["@character1", "@char1", "@ref1"],
         ["@character2", "@char2", "@ref2"],
@@ -1411,7 +1411,7 @@ class LTXDirector(io.ComfyNode):
         # characters = [{ "images": [{"b64":..., "name":...}], "description": "..." }, ...]
         char_images = []          # flat list of every reference image tensor
         char_slot_images = []     # per-slot tensors, for @char tag filtering in MSR mode
-        char1_val, char2_val, char3_val = "", "", ""
+        char1_val, char2_val, char3_val, char4_val, char5_val = "", "", "", "", ""
         try:
             characters = tdata.get("characters", [])
             if len(characters) > 0:
@@ -1420,6 +1420,10 @@ class LTXDirector(io.ComfyNode):
                 char2_val = characters[1].get("description", "")
             if len(characters) > 2:
                 char3_val = characters[2].get("description", "")
+            if len(characters) > 3:
+                char4_val = characters[3].get("description", "")
+            if len(characters) > 4:
+                char5_val = characters[4].get("description", "")
 
             for char_info in characters:
                 images_list = char_info.get("images", [])
@@ -1452,7 +1456,7 @@ class LTXDirector(io.ComfyNode):
         #            instead of a literal "@ref1" token; identity still comes from the
         #            reference image. Empty slot -> tag left as-is (pre-existing behaviour).
         ref_global, ref_local = _preprocess_prompts_with_characters(
-            global_prompt, local_prompts, char1_val, char2_val, char3_val,
+            global_prompt, local_prompts, char1_val, char2_val, char3_val, char4_val, char5_val,
             skip_empty=(reference_mode == "Licon MSR (Prefix)"),
         )
         global_prompt, local_prompts = ref_global, ref_local
@@ -1682,7 +1686,7 @@ class LTXDirector(io.ComfyNode):
             # descriptions before encoding.
             _full_gp = (tdata.get("global_prompt") or "").strip() or global_prompt
             _gp25, _lp25 = _preprocess_prompts_with_characters(
-                _full_gp, local_prompts, char1_val, char2_val, char3_val, skip_empty=False,
+                _full_gp, local_prompts, char1_val, char2_val, char3_val, char4_val, char5_val, skip_empty=False,
             )
             log.info("[LTXDirector] Stubelius MSR25: using full timeline prompt (%d chars).", len(_gp25 or ""))
             patched, conditioning = _encode_relay(
