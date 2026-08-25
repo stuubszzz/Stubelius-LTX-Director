@@ -15,6 +15,22 @@ function _firstArray(x) {
   return null;
 }
 let LISTS_LOADED = false;
+function loadListsFromRegistry() {
+  // Node definitions are already client-side (same source as native combo widgets,
+  // e.g. the Refine's sampler dropdown). No fetch, no timing issues.
+  try {
+    const LG = window.LiteGraph || globalThis.LiteGraph;
+    const req = (cls) => LG?.registered_node_types?.[cls]?.nodeData?.input?.required || {};
+    const s = _firstArray(req("StubeliusLTXRefine").sampler_name)
+           || _firstArray(req("KSamplerSelect").sampler_name);
+    const c = _firstArray(req("StubeliusLTXRefine").scheduler)
+           || _firstArray(req("BasicScheduler").scheduler);
+    if (Array.isArray(s) && s.length) { SAMPLERS = s; LISTS_LOADED = true; }
+    if (Array.isArray(c) && c.length) { SCHEDULERS = c; }
+    if (LISTS_LOADED) console.log("[StubeliusLTX] sampler lists from node registry:",
+                                  SAMPLERS.length, "samplers,", SCHEDULERS.length, "schedulers");
+  } catch (e) { console.warn("[StubeliusLTX] registry lookup failed", e); }
+}
 async function _tryFetch(path) {
   const r = await fetch(path);
   if (!r.ok) throw new Error(path + " -> " + r.status);
@@ -142,6 +158,13 @@ function buildPanel(node, widget) {
     cfg.type = "number"; cfg.step = "0.1"; cfg.value = slot.cfg ?? 1.0; cfg.title = "cfg";
     cfg.onchange = () => { slot.cfg = parseFloat(cfg.value) || 1.0; sync(); };
   });
+  if (!LISTS_LOADED) loadListsFromRegistry();
+  if (LISTS_LOADED) {
+    root.querySelectorAll("select[data-kind='smp']").forEach((sel, i) =>
+      _repopulate(sel, SAMPLERS, slots[i]?.sampler || "euler"));
+    root.querySelectorAll("select[data-kind='sch']").forEach((sel, i) =>
+      _repopulate(sel, SCHEDULERS, slots[i]?.scheduler || "linear_quadratic"));
+  }
   if (!LISTS_LOADED) {
     fetchLists().then(() => {
       if (!LISTS_LOADED) return;
@@ -156,7 +179,7 @@ function buildPanel(node, widget) {
 
 app.registerExtension({
   name: "stubelius.ltx.huntpanel",
-  async setup() { await fetchLists(); },
+  async setup() { loadListsFromRegistry(); if (!LISTS_LOADED) await fetchLists(); },
   nodeCreated(node) {
     if (node.comfyClass !== "StubeliusLTXSeedHunt") return;
     const widget = (node.widgets || []).find(w => w.name === "slots_json");
