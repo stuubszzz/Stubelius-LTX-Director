@@ -153,6 +153,24 @@ def _sample_av(model, positive, negative, cfg, sampler_name, sigmas, seed,
     return video, audio
 
 
+def _free_vram(reason=""):
+    """Aggressively release VRAM between heavy stages - the 2x upscale + tiled decode
+    otherwise spikes because the hunt's decoded candidates and pass-2 intermediates
+    stay resident simultaneously."""
+    try:
+        import gc
+        import torch
+        import comfy.model_management as mm
+        gc.collect()
+        mm.soft_empty_cache()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.ipc_collect()
+        log.info("[StubeliusLTX] freed VRAM%s.", f" ({reason})" if reason else "")
+    except Exception as e:  # noqa: BLE001
+        log.warning("[StubeliusLTX] VRAM free failed: %s", e)
+
+
 def _decode(vae, audio_vae, positive, negative, video_latent, audio_latent,
             tile_size, tile_overlap):
     pos_c, neg_c, cropped = call_node("LTXDirectorCropGuidesCS25",
@@ -386,6 +404,14 @@ class StubeliusLTXRefine:
         upsampled = call_node("LTXVLatentUpsampler", samples={"samples": sel["samples"]},
                               latent={"samples": sel["samples"]},
                               upscale_model=upscale_model, vae=vae)[0]
+        # the picked candidate's low-res latent is no longer needed once upscaled;
+        # free before the guide rebuild + tiled decode, which are the real VRAM peak.
+        try:
+            sel_samples = sel["samples"]
+            del sel_samples
+        except Exception:
+            pass
+        _free_vram("post-upscale")
 
         pos2, neg2, lat2, model2, _ = _guide(
             positive, negative, vae, upsampled, guide_data, motion_guide_data, model,
@@ -403,6 +429,7 @@ class StubeliusLTXRefine:
         video2, audio2 = _sample_av(model2, pos2, neg2, cfg, sampler_name,
                                     sigmas, seed, lat2, audio_latent, audio_lock=audio_lock)
 
+        _free_vram("pre-decode")
         images, audio_out, cropped = _decode(vae, audio_vae, pos2, neg2,
                                              video2, audio2, tile_size, tile_overlap)
         n_sig = int(sigmas.shape[0]) - 1 if hasattr(sigmas, "shape") else "?"
