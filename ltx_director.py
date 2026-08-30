@@ -1315,7 +1315,7 @@ class LTXDirector(io.ComfyNode):
                 ),
                 io.Image.Input(
                     "ref_images", optional=True,
-                    tooltip="Ghost Mask only. Extra reference image(s) (e.g. an object) — a single image or a batch. Appended as their own block of hidden reference frames AFTER the @ref references, for any number of reference slots loaded (0-3). Ignored in MSR / OFF modes.",
+                    tooltip="Ingredients: extra reference image(s) (e.g. an object, prop, outfit) — a single image or a batch. Ghost Mask: appended as hidden tail reference frames after the @ref references. Licon MSR: each image joins the MSR reference set after the character slots (mention it in the prompt for strongest retrieval). Ignored in OFF mode.",
                 ),
                 io.Float.Input(
                     "start", force_input=True, optional=True, default=0.0,
@@ -1645,7 +1645,8 @@ class LTXDirector(io.ComfyNode):
 
             # Honour @refN (and legacy @charN) tags: select only the slots the prompt references; else all filled slots.
             _prompt_text = _raw_tag_text
-            _tag_pairs = [("@character1", "@char1", "@ref1"), ("@character2", "@char2", "@ref2"), ("@character3", "@char3", "@ref3")]
+            _tag_pairs = [("@character1", "@char1", "@ref1"), ("@character2", "@char2", "@ref2"), ("@character3", "@char3", "@ref3"),
+                          ("@character4", "@char4", "@ref4"), ("@character5", "@char5", "@ref5")]
             _referenced_slots = [i for i, tags in enumerate(_tag_pairs) if any(t in _prompt_text for t in tags)]
             _selected = []
             for _slot in _referenced_slots:
@@ -1669,8 +1670,26 @@ class LTXDirector(io.ComfyNode):
             _msr_frames = 25 if _msr_frames == 25 else 33  # 2.5 supports 25/33 only
 
             _msr25_refs = []
-            for _si, _img in enumerate(identity_images[:4]):
+            for _si, _img in enumerate(identity_images[:5]):
                 _msr25_refs.append(("ref%d" % (_si + 1), _img, False))
+
+            # "Ingredients": the optional ref_images IMAGE input (an upload/batch of extra
+            # reference pictures - objects, props, outfits) joins the MSR reference set
+            # after the character slots, whatdreamscost-style. Each frame of the batch
+            # becomes its own slot-embedded reference keyframe. Mention the ingredient in
+            # the prompt for strongest retrieval (2.5 slot retrieval is text-anchored).
+            if ref_images is not None:
+                try:
+                    _n_slots = len(_msr25_refs)
+                    for _bi in range(ref_images.shape[0]):
+                        _ing = _resize_image(ref_images[_bi:_bi + 1], latent_w, latent_h,
+                                             resize_method, divisible_by)
+                        _msr25_refs.append(("ref%d" % (_n_slots + _bi + 1), _ing, False))
+                    log.info("[LTXDirector] MSR ingredients: %d image(s) from ref_images joined "
+                             "the reference set (slots %d..%d).",
+                             ref_images.shape[0], _n_slots + 1, len(_msr25_refs))
+                except Exception as _e:
+                    log.warning("[LTXDirector] Could not process ref_images as MSR ingredients: %s", _e)
 
             if optional_latent is None:
                 samples = torch.zeros(
