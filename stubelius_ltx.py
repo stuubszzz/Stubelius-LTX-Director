@@ -150,11 +150,14 @@ def _sample_av(model, positive, negative, cfg, sampler_name, sigmas, seed,
     if audio_lock:
         try:
             import comfy.nested_tensor
-            v = video_latent["samples"]
+            # keep the guide's video mask (reference keyframes stay clean); freeze only the audio
+            v_mask = video_latent.get("noise_mask")
+            if v_mask is None:
+                v_mask = torch.ones_like(video_latent["samples"])
             a = audio_latent["samples"]
             combined = dict(combined)
             combined["noise_mask"] = comfy.nested_tensor.NestedTensor(
-                (torch.ones_like(v), torch.zeros_like(a)))
+                (v_mask, torch.zeros_like(a)))
             log.info("[StubeliusLTX] audio lock: candidate audio frozen through pass 2.")
         except Exception as e:  # noqa: BLE001 - lock is best-effort, never fatal
             log.warning("[StubeliusLTX] audio lock unavailable (%s) - audio will re-render.", e)
@@ -182,13 +185,31 @@ def _free_vram(reason=""):
         log.warning("[StubeliusLTX] VRAM free failed: %s", e)
 
 
+def _decode_video(vae, samples, tile_size, tile_overlap):
+    """Spatially tiled, temporally whole. The LTX 2.5 video VAE decodes with a diffusion
+    decoder, and ComfyUI's generic tiler renders each temporal chunk as a standalone clip
+    (own noise, chunk ends treated as clip ends) - with the old 8-frame overlap that was a
+    1-frame blend and showed as a detail pop every 56 frames. Chunks with a 16-frame
+    overlap (9-frame crossfade, the official template setting) are only the OOM fallback."""
+    import comfy.model_management as mm
+    try:
+        return call_node("VAEDecodeTiled", vae=vae, samples=samples,
+                         tile_size=tile_size, overlap=tile_overlap,
+                         temporal_size=4096, temporal_overlap=16)[0]
+    except mm.OOM_EXCEPTION:
+        log.warning("[StubeliusLTX] full-length decode ran out of VRAM - retrying in 64-frame "
+                    "chunks with a crossfade (a smaller tile_size avoids this).")
+    _free_vram("decode OOM retry")
+    return call_node("VAEDecodeTiled", vae=vae, samples=samples,
+                     tile_size=tile_size, overlap=tile_overlap,
+                     temporal_size=64, temporal_overlap=16)[0]
+
+
 def _decode(vae, audio_vae, positive, negative, video_latent, audio_latent,
             tile_size, tile_overlap):
     pos_c, neg_c, cropped = call_node("LTXDirectorCropGuidesCS25",
                                       positive=positive, negative=negative, latent=video_latent)[:3]
-    images = call_node("VAEDecodeTiled", vae=vae, samples=cropped,
-                       tile_size=tile_size, overlap=tile_overlap,
-                       temporal_size=64, temporal_overlap=8)[0]
+    images = _decode_video(vae, cropped, tile_size, tile_overlap)
     audio = call_node("LTXVAudioVAEDecode", vae=audio_vae, audio_vae=audio_vae,
                       samples=audio_latent, latent=audio_latent)[0]
     return images, audio, cropped
