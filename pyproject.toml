@@ -1,14 +1,14 @@
 [project]
-name = "whatdreamscost-csglide"
-description = "LTX Director (CS) — modded LTX Director with reference-sheet / @char / MSR + provider Analyze backend. Coexists with the original WhatDreamsCost-ComfyUI without collisions."
+name = "stubelius-ultimate-ltx25"
+description = "Stubelius Ultimate LTX 2.5 — the LTX 2.5 Director timeline plus a seed-hunt dashboard: seeds with sound, full-size refine of the winner, RIFE, RTX VSR / DLSS5. Forked from WhatDreamsCost's LTX Director via WhatDreamsCost-CSGlide."
 version = "2.0.0"
 license = {file = "LICENSE"}
 
 [project.urls]
-Repository = "https://github.com/CGlide/WhatDreamsCost-CSGlide"
+Repository = "https://github.com/stuubszzz/Stubelius-Ultimate-LTX2.5"
 
 [tool.comfy]
 PublisherId = "REPLACE_WITH_YOUR_REGISTRY_PUBLISHER_ID"
-DisplayName = "WhatDreamsCost-CSGlide"
+DisplayName = "Stubelius Ultimate LTX 2.5"
 Icon = ""
 includes = []

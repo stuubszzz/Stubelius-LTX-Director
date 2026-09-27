@@ -1,10 +1,12 @@
 
-# Stubelius LTX Director (LTX 2.5)
+# Stubelius Ultimate LTX 2.5
 
 The LTX 2.5 Director timeline node plus **Stubelius Ultimate LTX**: one clean LTX 2.5 workflow.
 Render 1–4 full seeds with sound, pick the winner, and only the winner gets refined at full size,
 frame-interpolated and upscaled. Built on
 [WhatDreamsCost's LTX Director](https://github.com/WhatDreamsCost/WhatDreamsCost-ComfyUI).
+
+This repo used to be called **Stubelius-LTX-Director**. Old links and existing installs keep working.
 
 This is the **LTX 2.5** build. If you are on LTX 2.3, use
 [WhatDreamsCost-CSGlide](https://github.com/CGlide/WhatDreamsCost-CSGlide) instead —
@@ -20,7 +22,7 @@ that version keeps the reference features listed below.
 ## Stubelius Ultimate LTX
 
 The workflow is in [`example_workflows/Stubelius_Ultimate_LTX.json`](example_workflows/Stubelius_Ultimate_LTX.json).
-Once the pack is installed it also appears in ComfyUI under **Workflow → Browse Templates → Stubelius-LTX-Director**.
+Once the pack is installed it also appears in ComfyUI under **Workflow → Browse Templates → Stubelius-Ultimate-LTX2.5**.
 The HOW TO USE note inside the workflow explains every node.
 
 | Node | Job |
@@ -31,16 +33,15 @@ The HOW TO USE note inside the workflow explains every node.
 | **LTX Director CS (2.5)** | The timeline: prompts, images, audio and motion tracks, size, frame rate, duration |
 | **Stubelius LTX Seeds** | Renders the seeds at the first-pass scale, with sound, one preview each |
 | **Stubelius LTX Finish** | WINNER 1–4 (0 = hold after the seeds). Latent x2 upscale + refine at full size, then RIFE and the upscaler. Changing it re-runs only the finish, from cache |
-| **Stubelius Live Preview** | Watch Seeds and Finish while they sample |
-| **Stubelius RIFE to FPS**, **Stubelius Color Lock** | Frame rate conversion that keeps hard cuts clean; restores the original colours after DLSS5 |
-| **Stubelius Theme** | Colour theme for this workflow only |
+| **Stubelius LTX Live Preview** | Watch Seeds and Finish while they sample |
+| **Stubelius LTX RIFE to FPS**, **Stubelius LTX Color Lock** | Frame rate conversion that keeps hard cuts clean; restores the original colours after DLSS5 |
+| **Stubelius LTX Theme** | Colour theme for this workflow only |
 
 **Seed hunt:** set seeds = 3 and WINNER = 0, queue, watch Seed 1–3, set WINNER on Finish and queue
 again. Only the finish runs; the seeds come from cache.
 
-Theme, Live Preview, RIFE to FPS and Color Lock are the same nodes
-[Stubelius-Ultimate-H3](https://github.com/stuubszzz/Stubelius-Ultimate-H3) ships, so the two packs
-install side by side.
+Every node and script in this pack has its own name, so it installs next to Stubelius Ultimate H3
+(MiniMax) without clashes.
 
 ### Other node packs
 
@@ -113,7 +114,7 @@ Clone into your ComfyUI custom nodes folder:
 
 ```
 cd ComfyUI/custom_nodes
-git clone https://github.com/stuubszzz/Stubelius-LTX-Director.git
+git clone https://github.com/stuubszzz/Stubelius-Ultimate-LTX2.5.git
 ```
 
 Then restart ComfyUI. To update, `git pull` in that folder (or Manager → Update All) and restart.

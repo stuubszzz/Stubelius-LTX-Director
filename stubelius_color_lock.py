@@ -1,4 +1,4 @@
-"""Stubelius Color Lock — keep an enhancer's detail, take colour and tone from the original.
+"""Stubelius LTX Color Lock — keep an enhancer's detail, take colour and tone from the original.
 
 In LAB: L = low-pass(reference L) + high-pass(enhanced L); a, b from the reference. The
 reference is resized to the enhanced size first. Anything an upscaler/enhancer did to colour
@@ -16,7 +16,7 @@ def _blur(x, sigma):
     return kornia.filters.gaussian_blur2d(x, (2 * int(3 * sigma) + 1,) * 2, (sigma, sigma), border_type="replicate")
 
 
-class StubeliusColorLock:
+class StubeliusLTXColorLock:
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -33,14 +33,14 @@ class StubeliusColorLock:
     RETURN_TYPES = ("IMAGE",)
     RETURN_NAMES = ("images",)
     FUNCTION = "run"
-    CATEGORY = "Stubelius"
+    CATEGORY = "StubeliusLTX"
 
     def run(self, enhanced, reference, detail_radius, batch_size, inplace=False):
         """inplace=True writes the result over `enhanced` (no second full-size copy). Only for a
         private tensor, like the Finish node's own DLSS5 output; as a node it never touches its input."""
         n = min(enhanced.shape[0], reference.shape[0])
         if enhanced.shape[0] != reference.shape[0]:
-            raise ValueError(f"[StubeliusColorLock] frame counts differ: enhanced {enhanced.shape[0]}, "
+            raise ValueError(f"[StubeliusLTXColorLock] frame counts differ: enhanced {enhanced.shape[0]}, "
                              f"reference {reference.shape[0]}")
         h, w = enhanced.shape[1:3]
         sigma = max(0.5, detail_radius * w / reference.shape[2])
@@ -63,5 +63,5 @@ class StubeliusColorLock:
         return (out,)
 
 
-NODE_CLASS_MAPPINGS = {"StubeliusColorLock": StubeliusColorLock}
-NODE_DISPLAY_NAME_MAPPINGS = {"StubeliusColorLock": "Stubelius Color Lock"}
+NODE_CLASS_MAPPINGS = {"StubeliusLTXColorLock": StubeliusLTXColorLock}
+NODE_DISPLAY_NAME_MAPPINGS = {"StubeliusLTXColorLock": "Stubelius LTX Color Lock"}

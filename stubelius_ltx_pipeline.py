@@ -132,7 +132,7 @@ class StubeliusLTXSetup:
     RETURN_TYPES = ("LTX_SETUP",)
     RETURN_NAMES = ("setup",)
     FUNCTION = "run"
-    CATEGORY = "Stubelius"
+    CATEGORY = "StubeliusLTX"
 
     def run(self, seeds, seed, steps, sampler, scheduler, cfg, first_pass_scale):
         s = dict(seed_count=max(1, min(4, int(seeds))), seed=int(seed), steps=int(steps), sampler=sampler,
@@ -312,7 +312,7 @@ class StubeliusLTXModels:
     RETURN_TYPES = ("MODEL", "CLIP", "VAE", "VAE", "LTX_MODELS")
     RETURN_NAMES = ("model", "clip", "vae", "audio_vae", "models")
     FUNCTION = "run"
-    CATEGORY = "Stubelius"
+    CATEGORY = "StubeliusLTX"
 
     def run(self, **cfg):
         _prune(cfg)
@@ -357,7 +357,7 @@ class StubeliusLTXOutput:
     RETURN_TYPES = ("LTX_OUTPUT",)
     RETURN_NAMES = ("output",)
     FUNCTION = "run"
-    CATEGORY = "Stubelius"
+    CATEGORY = "StubeliusLTX"
 
     def run(self, refine_strength, refine_steps, refine_sampler, audio, final_resolution, final_fps, upscaler):
         o = dict(strength=float(refine_strength), steps=int(refine_steps), sampler=refine_sampler,
@@ -398,7 +398,7 @@ class StubeliusLTXSeeds:
     RETURN_NAMES = ("seed_1", "seed_1_audio", "seed_2", "seed_2_audio", "seed_3", "seed_3_audio",
                     "seed_4", "seed_4_audio", "takes")
     FUNCTION = "run"
-    CATEGORY = "Stubelius"
+    CATEGORY = "StubeliusLTX"
 
     def run(self, setup, models, model, positive, negative, video_latent, audio_latent, guide_data,
             frame_rate, motion_guide_data=None, unique_id=None):
@@ -545,7 +545,7 @@ class StubeliusLTXFinish:
     RETURN_TYPES = ("IMAGE", "AUDIO", "FLOAT")
     RETURN_NAMES = ("images", "audio", "fps")
     FUNCTION = "run"
-    CATEGORY = "Stubelius"
+    CATEGORY = "StubeliusLTX"
 
     def run(self, takes, models, output, winner, unique_id=None):
         if int(winner) == 0:
@@ -568,8 +568,8 @@ class StubeliusLTXFinish:
 
         fps = source_fps
         if o["fps"] > source_fps + 1e-6:
-            from .stubelius_rife_fps import StubeliusRIFEToFPS
-            images, fps = StubeliusRIFEToFPS().run(images, source_fps, o["fps"], "rife47.pth", True, True, 8)
+            from .stubelius_rife_fps import StubeliusLTXRIFEToFPS
+            images, fps = StubeliusLTXRIFEToFPS().run(images, source_fps, o["fps"], "rife47.pth", True, True, 8)
 
         upscaled = bool(target and target / _short(images) > 1.02)
         if upscaled:
@@ -624,23 +624,23 @@ class StubeliusLTXFinish:
             # past DLSS5's 3x: RTX VSR takes it the rest of the way, or a second DLSS5 pass when VSR
             # isn't installed
             enhanced = _vsr(enhanced, short_side) if _cls("RTXVideoSuperResolution") else _dlss5(enhanced, rest)
-        from .stubelius_color_lock import StubeliusColorLock
+        from .stubelius_color_lock import StubeliusLTXColorLock
         # The upscaled frames are ours alone (unless DLSS5 handed back its input): Color Lock and
         # the exact fit then work in place, so the frames exist once, not three times.
         private = enhanced.untyped_storage().data_ptr() != images.untyped_storage().data_ptr()
-        enhanced = StubeliusColorLock().run(enhanced, images, 1.0, 16, inplace=private)[0]
+        enhanced = StubeliusLTXColorLock().run(enhanced, images, 1.0, 16, inplace=private)[0]
         return _fit(enhanced, short_side, inplace=private)
 
 
-# ---------------------------------------------------------------- shared with Stubelius-Ultimate-H3
-# Identical to the classes in Stubelius-Ultimate-H3 (same names, inputs and defaults), so either pack
-# can provide them and a workflow saved with one loads with the other.
+# ---------------------------------------------------------------- theme and live preview
+# Display-only nodes, drawn by the pack's JavaScript. Their names are this pack's own, so it installs
+# next to other packs that ship a theme or preview node of their own.
 
 THEMES = ["Studio slate", "Stuubzzz neon", "Film stock", "Paper light", "Midnight blueprint", "ComfyUI default"]
 
 
-class StubeliusTheme:
-    """Look of THIS workflow only (js/stubelius_theme.js). Saved in the workflow; never runs."""
+class StubeliusLTXTheme:
+    """Look of THIS workflow only (js/stubelius_ltx_theme.js). Saved in the workflow; never runs."""
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -649,14 +649,14 @@ class StubeliusTheme:
 
     RETURN_TYPES = ()
     FUNCTION = "run"
-    CATEGORY = "Stubelius"
+    CATEGORY = "StubeliusLTX"
 
     def run(self, theme):
         return ()
 
 
-class StubeliusLivePreview:
-    """Display-only panel for the live sampling preview (see js/stubelius_live_preview.js).
+class StubeliusLTXLivePreview:
+    """Display-only panel for the live sampling preview (see js/stubelius_ltx_live_preview.js).
     No inputs or outputs; it never runs as part of the prompt."""
 
     @classmethod
@@ -665,7 +665,7 @@ class StubeliusLivePreview:
 
     RETURN_TYPES = ()
     FUNCTION = "run"
-    CATEGORY = "Stubelius"
+    CATEGORY = "StubeliusLTX"
 
     def run(self):
         return ()
@@ -677,8 +677,8 @@ NODE_CLASS_MAPPINGS = {
     "StubeliusLTXOutput": StubeliusLTXOutput,
     "StubeliusLTXSeeds": StubeliusLTXSeeds,
     "StubeliusLTXFinish": StubeliusLTXFinish,
-    "StubeliusTheme": StubeliusTheme,
-    "StubeliusLivePreview": StubeliusLivePreview,
+    "StubeliusLTXTheme": StubeliusLTXTheme,
+    "StubeliusLTXLivePreview": StubeliusLTXLivePreview,
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "StubeliusLTXSetup": "Stubelius LTX Setup",
@@ -686,6 +686,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "StubeliusLTXOutput": "Stubelius LTX Output",
     "StubeliusLTXSeeds": "Stubelius LTX Seeds",
     "StubeliusLTXFinish": "Stubelius LTX Finish",
-    "StubeliusTheme": "Stubelius Theme (this workflow)",
-    "StubeliusLivePreview": "Stubelius Live Preview",
+    "StubeliusLTXTheme": "Stubelius LTX Theme (this workflow)",
+    "StubeliusLTXLivePreview": "Stubelius LTX Live Preview",
 }

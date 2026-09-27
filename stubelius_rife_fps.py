@@ -1,4 +1,4 @@
-"""Stubelius RIFE to FPS — frame interpolation to any target frame rate in one pass.
+"""Stubelius LTX RIFE to FPS — frame interpolation to any target frame rate in one pass.
 
 RIFE's IFNet accepts any in-between point t in (0, 1), not just k/multiplier. Every output
 frame k sits at source position k * source_fps / target_fps; frames landing on a source
@@ -38,7 +38,7 @@ def _vfi_pack():
                 if d not in sys.path:
                     sys.path.insert(0, d)
                 return d
-    raise RuntimeError("[StubeliusRIFEToFPS] needs ComfyUI-Frame-Interpolation (RIFE) installed.")
+    raise RuntimeError("[StubeliusLTXRIFEToFPS] needs ComfyUI-Frame-Interpolation (RIFE) installed.")
 
 
 def _model(ckpt_name):
@@ -74,7 +74,7 @@ def _hard_cuts(images, device):
     return {int(j) for j in torch.nonzero((d > threshold) & (d > CUT_X_NEIGHBOUR * neighbours)).flatten()}
 
 
-class StubeliusRIFEToFPS:
+class StubeliusLTXRIFEToFPS:
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -94,7 +94,7 @@ class StubeliusRIFEToFPS:
     RETURN_TYPES = ("IMAGE", "FLOAT")
     RETURN_NAMES = ("images", "fps")
     FUNCTION = "run"
-    CATEGORY = "Stubelius"
+    CATEGORY = "StubeliusLTX"
 
     def run(self, images, source_fps, target_fps, ckpt_name, fast_mode, ensemble, batch_size):
         n_in = images.shape[0]
@@ -147,12 +147,12 @@ class StubeliusRIFEToFPS:
                     out[k] = m
         soft_empty_cache()
 
-        log.info("[StubeliusRIFEToFPS] %d frames @ %.3g fps -> %d frames @ %.3g fps (%d drawn by RIFE)%s",
+        log.info("[StubeliusLTXRIFEToFPS] %d frames @ %.3g fps -> %d frames @ %.3g fps (%d drawn by RIFE)%s",
                  n_in, source_fps, n_out, target_fps, len(tasks),
                  "; hard cut(s) kept clean at " + ", ".join(f"{(j + 1) / source_fps:.2f}s" for j in sorted(cuts))
                  if cuts else "")
         return (out, float(target_fps))
 
 
-NODE_CLASS_MAPPINGS = {"StubeliusRIFEToFPS": StubeliusRIFEToFPS}
-NODE_DISPLAY_NAME_MAPPINGS = {"StubeliusRIFEToFPS": "Stubelius RIFE to FPS"}
+NODE_CLASS_MAPPINGS = {"StubeliusLTXRIFEToFPS": StubeliusLTXRIFEToFPS}
+NODE_DISPLAY_NAME_MAPPINGS = {"StubeliusLTXRIFEToFPS": "Stubelius LTX RIFE to FPS"}

@@ -1,6 +1,6 @@
 // Stubelius Gold — black/gold paint for the LTX-2.5 Director pack nodes.
 // Scoped to this pack; coexists with the global Stubelius Gold theme. Stands down while a
-// workflow's own Stubelius Theme is active (js/stubelius_theme.js sets the flag).
+// workflow's own Stubelius LTX Theme is active (js/stubelius_ltx_theme.js sets the flag).
 import { app } from "../../scripts/app.js";
 
 const GOLD = "#FFD700";
@@ -18,10 +18,16 @@ const PACK_NODES = new Set([
 ]);
 
 function paint(node) {
-  if (window.__stubeliusWorkflowTheme || !PACK_NODES.has(node.comfyClass || "")) return;
+  if (window.__stubeliusLTXWorkflowTheme || !PACK_NODES.has(node.comfyClass || "")) return;
   node.color = TITLE;
   node.bgcolor = BLACK;
 }
+
+// The LTX theme calls this when it clears itself, so the pack's nodes get their gold back.
+window.__stubeliusLTXGoldRepaint = () => {
+  for (const n of app.graph?._nodes || []) paint(n);
+  app.canvas?.setDirty(true, true);
+};
 
 app.registerExtension({
   name: "stubelius.director25.gold",
@@ -33,7 +39,7 @@ app.registerExtension({
     if (cls !== "LTXDirectorCS25" && cls !== "LTXDirectorGuideCS25") return;
     const orig = node.onDrawForeground;
     node.onDrawForeground = function (ctx) {
-      if (!this.flags?.collapsed && !window.__stubeliusWorkflowTheme) {
+      if (!this.flags?.collapsed && !window.__stubeliusLTXWorkflowTheme) {
         ctx.save();
         const t = window.LiteGraph.NODE_TITLE_HEIGHT;
         const pulse = 0.55 + 0.45 * Math.sin(performance.now() / 700);

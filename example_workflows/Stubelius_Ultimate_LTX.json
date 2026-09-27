@@ -5,7 +5,7 @@
  "last_link_id": 34,
  "nodes": [
   {
-   "type": "StubeliusTheme",
+   "type": "StubeliusLTXTheme",
    "pos": [
     -960,
     -120
@@ -28,8 +28,8 @@
    "outputs": [],
    "title": "THEME (this workflow only)",
    "properties": {
-    "aux_id": "stuubszzz/Stubelius-LTX-Director",
-    "Node name for S&R": "StubeliusTheme",
+    "aux_id": "stuubszzz/Stubelius-Ultimate-LTX2.5",
+    "Node name for S&R": "StubeliusLTXTheme",
     "ue_properties": {
      "widget_ue_connectable": {},
      "version": "7.8",
@@ -164,7 +164,7 @@
    ],
    "title": "SETUP — how the seeds are rendered",
    "properties": {
-    "aux_id": "stuubszzz/Stubelius-LTX-Director",
+    "aux_id": "stuubszzz/Stubelius-Ultimate-LTX2.5",
     "Node name for S&R": "StubeliusLTXSetup",
     "ue_properties": {
      "widget_ue_connectable": {},
@@ -408,7 +408,7 @@
    ],
    "title": "MODELS — checkpoint, LoRAs, speedups",
    "properties": {
-    "aux_id": "stuubszzz/Stubelius-LTX-Director",
+    "aux_id": "stuubszzz/Stubelius-Ultimate-LTX2.5",
     "Node name for S&R": "StubeliusLTXModels",
     "ue_properties": {
      "widget_ue_connectable": {},
@@ -530,7 +530,7 @@
    ],
    "title": "OUTPUT — refine, resolution, FPS, upscaler",
    "properties": {
-    "aux_id": "stuubszzz/Stubelius-LTX-Director",
+    "aux_id": "stuubszzz/Stubelius-Ultimate-LTX2.5",
     "Node name for S&R": "StubeliusLTXOutput",
     "ue_properties": {
      "widget_ue_connectable": {},
@@ -706,7 +706,7 @@
     }
    ],
    "properties": {
-    "aux_id": "stuubszzz/Stubelius-LTX-Director",
+    "aux_id": "stuubszzz/Stubelius-Ultimate-LTX2.5",
     "Node name for S&R": "LTXDirectorCS25",
     "has_serialized_properties": true,
     "start_second": 0,
@@ -958,7 +958,7 @@
    ],
    "title": "SEEDS — render 1-4 full seeds",
    "properties": {
-    "aux_id": "stuubszzz/Stubelius-LTX-Director",
+    "aux_id": "stuubszzz/Stubelius-Ultimate-LTX2.5",
     "Node name for S&R": "StubeliusLTXSeeds",
     "ue_properties": {
      "widget_ue_connectable": {},
@@ -975,7 +975,7 @@
    "bgcolor": "#1b1720"
   },
   {
-   "type": "StubeliusLivePreview",
+   "type": "StubeliusLTXLivePreview",
    "pos": [
     1260,
     -120
@@ -988,8 +988,8 @@
    "outputs": [],
    "title": "LIVE PREVIEW (Seeds while sampling, Finish while refining)",
    "properties": {
-    "aux_id": "stuubszzz/Stubelius-LTX-Director",
-    "Node name for S&R": "StubeliusLivePreview",
+    "aux_id": "stuubszzz/Stubelius-Ultimate-LTX2.5",
+    "Node name for S&R": "StubeliusLTXLivePreview",
     "ue_properties": {
      "widget_ue_connectable": {},
      "version": "7.8",
@@ -1758,7 +1758,7 @@
    ],
    "title": "FINISH — pick the WINNER (0 = hold after the seeds)",
    "properties": {
-    "aux_id": "stuubszzz/Stubelius-LTX-Director",
+    "aux_id": "stuubszzz/Stubelius-Ultimate-LTX2.5",
     "Node name for S&R": "StubeliusLTXFinish",
     "ue_properties": {
      "widget_ue_connectable": {},

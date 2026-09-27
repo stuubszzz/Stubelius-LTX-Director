@@ -44,8 +44,7 @@ from .stubelius_ltx import (
 NODE_CLASS_MAPPINGS.update(_STUB_NODES)
 NODE_DISPLAY_NAME_MAPPINGS.update(_STUB_NAMES)
 
-# Stubelius Ultimate LTX dashboard. Theme, Live Preview, RIFE to FPS and Color Lock are the same
-# nodes Stubelius-Ultimate-H3 ships, so either pack can provide them.
+# Stubelius Ultimate LTX dashboard, with its own Theme, Live Preview, RIFE to FPS and Color Lock.
 from .stubelius_ltx_pipeline import (
     NODE_CLASS_MAPPINGS as _PIPE_NODES,
     NODE_DISPLAY_NAME_MAPPINGS as _PIPE_NAMES,
