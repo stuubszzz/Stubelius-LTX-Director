@@ -1,15 +1,17 @@
-"""Stubelius Ultimate LTX: Setup, Models, Output, Seeds and Finish around the LTX 2.5 Director.
+"""Stubelius Ultimate LTX: Setup, Seed Samplers, Models, Output, Seeds and Finish around the LTX 2.5 Director.
 
-Setup   decides HOW the seeds are rendered: how many (1-4), the seed, steps, sampler, scheduler,
-        cfg and the first-pass scale. There are no modes: LTX 2.5 always renders its seeds small
-        and refines only the winner at full size.
+Setup   decides HOW the seeds are rendered: how many (1-4), the seed, steps, cfg and the first-pass
+        scale. There are no modes: LTX 2.5 always renders its seeds small and refines only the
+        winner at full size.
+Seed Samplers  the sampler and scheduler of each seed (the slots past Setup's count are greyed out).
 Models  loads the checkpoint, text encoder, VAEs and latent upscaler and applies the LoRAs and the
         speed/memory patches. Its model / clip / vae / audio_vae feed the Director; the bundle
         (models) feeds Seeds and Finish. Loaded files are kept per name, so changing a LoRA or a
-        switch doesn't read the checkpoint from disk again.
-Output  decides what comes OUT: how far the full-size refine may move the winner, the final
-        resolution, frame rate and upscaler. It feeds only Finish, so changing it after a seed
-        hunt re-runs only the finish.
+        switch doesn't read the checkpoint from disk again. The MSR LoRA (and its first-pass
+        strength) sits here too; the Director guides load it in each pass.
+Output  decides what comes OUT: how far the full-size refine may move the winner (and the MSR
+        strengths of that second pass), the final resolution, frame rate and upscaler. It feeds
+        only Finish, so changing it after a seed hunt re-runs only the finish.
 Seeds   renders 1-4 full seeds with sound at the first-pass scale (the guides are built once) and
         hands them to Finish as one bundle (takes).
 Finish  turns the WINNER into the final video: latent upscale and refine at full size (the seed's
@@ -34,6 +36,9 @@ from .stubelius_ltx import _decode, _free_vram, _guide, _sample_av, _unwrap, cal
 log = logging.getLogger(__name__)
 
 SEED_STEP = 1000003     # seed k = seed + (k - 1) * SEED_STEP, as the old Seed Hunt slots
+# The official LTX 2.5 first pass: euler_ancestral; linear_quadratic at 8 steps gives exactly its
+# distilled sigmas (1.0 ... 0.975, 0.909, 0.725, 0.422, 0). Used when the Seed Samplers box is bypassed.
+DEFAULT_SAMPLER, DEFAULT_SCHEDULER = "euler_ancestral", "linear_quadratic"
 UPSCALERS = ["RTX VSR", "DLSS5 + Color Lock"]
 AUDIO_MODES = ["keep the seed's audio", "regenerate in the refine"]
 DLSS5_FACTORS = {1.5: "1.5x (Quality)", 1.724: "1.724x (Balanced)", 2.0: "2x (Performance)",
@@ -82,6 +87,16 @@ def _gguf(folder):
     return [f for f in _files(folder) if f.lower().endswith(".gguf")]
 
 
+def _msr_default(loras):
+    """An LTX 2.5 MSR LoRA when one is installed (Licon's LTX-2.5-Licon-MSR-V1). The 2.3 MSR LoRAs
+    lack the slot-embedding tensors the 2.5 engine needs, so they are never picked."""
+    for name in loras:
+        low = os.path.basename(name).lower()
+        if "msr" in low and ("2.5" in low or "2_5" in low or "25" in low.replace("2.5", "")):
+            return name
+    return "none"
+
+
 def _resolve_lora(name):
     for candidate in (name, name.replace("\\", "/"), name.replace("/", "\\")):
         path = folder_paths.get_full_path("loras", candidate)
@@ -101,12 +116,11 @@ def refine_sigmas(strength, steps):
 # ---------------------------------------------------------------- Setup
 
 class StubeliusLTXSetup:
-    """How the seeds are rendered. Every setting here is the real value used."""
+    """How the seeds are rendered. Every setting here is the real value used; each seed's sampler
+    and scheduler are on the Seed Samplers box."""
 
     @classmethod
     def INPUT_TYPES(cls):
-        samplers = list(comfy.samplers.KSampler.SAMPLERS)
-        schedulers = list(comfy.samplers.KSampler.SCHEDULERS)
         return {
             "required": {
                 "seeds": ("INT", {"default": 1, "min": 1, "max": 4, "tooltip":
@@ -116,10 +130,6 @@ class StubeliusLTXSetup:
                     "Seed 1. Seeds 2-4 add 1000003 each. Keep it fixed between the seed hunt and the finish."}),
                 "steps": ("INT", {"default": 8, "min": 1, "max": 100, "tooltip":
                     "8 for the distilled model (the Stubelius remix has the distilled LoRA baked in)."}),
-                # the official LTX 2.5 template: euler_ancestral; linear_quadratic at 8 steps gives exactly
-                # its distilled sigmas (1.0 ... 0.975, 0.909, 0.725, 0.422, 0)
-                "sampler": (samplers, {"default": "euler_ancestral"}),
-                "scheduler": (schedulers, {"default": "linear_quadratic" if "linear_quadratic" in schedulers else "simple"}),
                 "cfg": ("FLOAT", {"default": 1.0, "min": 1.0, "max": 20.0, "step": 0.1, "tooltip":
                     "1.0 for the distilled model (the negative is skipped, twice as fast). Raise only with a "
                     "non-distilled checkpoint."}),
@@ -134,11 +144,42 @@ class StubeliusLTXSetup:
     FUNCTION = "run"
     CATEGORY = "StubeliusLTX"
 
-    def run(self, seeds, seed, steps, sampler, scheduler, cfg, first_pass_scale):
-        s = dict(seed_count=max(1, min(4, int(seeds))), seed=int(seed), steps=int(steps), sampler=sampler,
-                 scheduler=scheduler, cfg=float(cfg), scale=float(first_pass_scale))
+    def run(self, seeds, seed, steps, cfg, first_pass_scale):
+        s = dict(seed_count=max(1, min(4, int(seeds))), seed=int(seed), steps=int(steps), cfg=float(cfg),
+                 scale=float(first_pass_scale))
         log.info("[StubeliusLTXSetup] %s", s)
         return (s,)
+
+
+# ---------------------------------------------------------------- Seed Samplers
+
+class StubeliusLTXSeedSamplers:
+    """The sampler and scheduler of each seed. Sits between Setup and Seeds; the slots past Setup's
+    seed count are greyed out (js/stubelius_ltx_seed_samplers.js) and not used."""
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        samplers = list(comfy.samplers.KSampler.SAMPLERS)
+        schedulers = list(comfy.samplers.KSampler.SCHEDULERS)
+        scheduler = DEFAULT_SCHEDULER if DEFAULT_SCHEDULER in schedulers else "simple"
+        req = {"setup": ("LTX_SETUP", {"tooltip": "From Setup."})}
+        for k in range(1, 5):
+            req[f"seed_{k}_sampler"] = (samplers, {"default": DEFAULT_SAMPLER, "tooltip":
+                f"Sampler for seed {k}. euler_ancestral is the official LTX 2.5 first pass."})
+            req[f"seed_{k}_scheduler"] = (schedulers, {"default": scheduler, "tooltip":
+                f"Scheduler for seed {k}. linear_quadratic at 8 steps is exactly the official distilled sigmas."})
+        return {"required": req}
+
+    RETURN_TYPES = ("LTX_SETUP",)
+    RETURN_NAMES = ("setup",)
+    FUNCTION = "run"
+    CATEGORY = "StubeliusLTX"
+
+    def run(self, setup, **slots):
+        per_seed = [(slots[f"seed_{k}_sampler"], slots[f"seed_{k}_scheduler"]) for k in range(1, 5)]
+        log.info("[StubeliusLTXSeedSamplers] %s", "  ".join(
+            f"seed {k}: {s}/{c}" for k, (s, c) in enumerate(per_seed[:setup["seed_count"]], 1)))
+        return (dict(setup, samplers=per_seed),)
 
 
 # ---------------------------------------------------------------- Models
@@ -204,6 +245,18 @@ class LTXModels:
         """(name, strength) for the Director guides; "None" = off, as LTXDirectorGuideCS25 expects."""
         name = self.cfg["ic_lora"]
         return ("None", 0.0) if name == "none" else (name, float(self.cfg["ic_lora_strength"]))
+
+    @property
+    def msr_lora(self):
+        """The MSR LoRA name as LTXDirectorGuideCS25 expects it ("None" = no LoRA). The guide loads it
+        only when the Director hands over MSR references."""
+        name = self.cfg["msr_lora"]
+        return "None" if name == "none" else name
+
+    @property
+    def msr(self):
+        """(msr_lora_name, msr_lora_strength) for the seeds' guide (the first pass)."""
+        return self.msr_lora, float(self.cfg["msr_lora_strength"])
 
     def _aux(self, kind, name, loader, **kwargs):
         if (kind, name) not in _AUX:
@@ -289,6 +342,12 @@ class StubeliusLTXModels:
                 "ic_lora": (loras, {"default": "none", "tooltip":
                     "IC-LoRA for the Director's motion / video guides (pose, depth, ...). none = off."}),
                 "ic_lora_strength": ("FLOAT", {"default": 0.6, "min": -2.0, "max": 2.0, "step": 0.05}),
+                "msr_lora": (loras, {"default": _msr_default(loras), "tooltip":
+                    "LTX 2.5 MSR LoRA (Licon LTX-2.5-Licon-MSR-V1), its own slot next to the IC-LoRA. Used in "
+                    "both passes whenever the Director's reference option is Licon MSR; ignored otherwise."}),
+                "msr_lora_strength": ("FLOAT", {"default": 1.0, "min": -2.0, "max": 2.0, "step": 0.05, "tooltip":
+                    "MSR LoRA strength on the seeds (first pass). The refine's is on the Output node, so "
+                    "changing it after a seed hunt re-runs only the finish."}),
                 "text_encoder": (tes, {"default": _first_match(tes, "gemma4-12b-with-proj-ltx-2.5", "ltx-2.5", "gemma4")}),
                 "video_vae": (vaes, {"default": _first_match(vaes, "ltx-2.5-video-vae")}),
                 "audio_vae": (vaes, {"default": _first_match(vaes, "ltx-2.5-audio-vae")}),
@@ -340,6 +399,13 @@ class StubeliusLTXOutput:
                 "refine_sampler": (list(comfy.samplers.KSampler.SAMPLERS), {"default": "euler", "tooltip":
                     "euler, as Lightricks' two-stage pipeline: ancestral noise only in the first pass (the "
                     "seeds), none in the refine."}),
+                "refine_msr_lora_strength": ("FLOAT", {"default": 1.0, "min": -2.0, "max": 2.0, "step": 0.05,
+                    "tooltip": "MSR LoRA strength in the refine (second pass); the LoRA itself and its first-pass "
+                    "strength are on the Models node. Only used when the Director's reference option is Licon MSR."}),
+                "refine_msr_reference": ("FLOAT", {"default": 0.4, "min": 0.0, "max": 1.0, "step": 0.05, "tooltip":
+                    "How hard the MSR reference images pull in the refine. ~0.4 holds the detail without the "
+                    "references repainting the opening (stops second-pass mist / ghosting). 0 = the Director's "
+                    "reference strength, which the seeds always use."}),
                 "audio": (AUDIO_MODES, {"default": AUDIO_MODES[0], "tooltip":
                     "keep: the refine leaves the seed's sound exactly as you heard it."}),
                 "final_resolution": (list(RESOLUTIONS), {"default": "1080p", "tooltip":
@@ -359,8 +425,10 @@ class StubeliusLTXOutput:
     FUNCTION = "run"
     CATEGORY = "StubeliusLTX"
 
-    def run(self, refine_strength, refine_steps, refine_sampler, audio, final_resolution, final_fps, upscaler):
+    def run(self, refine_strength, refine_steps, refine_sampler, refine_msr_lora_strength, refine_msr_reference,
+            audio, final_resolution, final_fps, upscaler):
         o = dict(strength=float(refine_strength), steps=int(refine_steps), sampler=refine_sampler,
+                 msr_lora_strength=float(refine_msr_lora_strength), msr_reference=float(refine_msr_reference),
                  audio_lock=(audio == AUDIO_MODES[0]), resolution=final_resolution, fps=float(final_fps),
                  upscaler=upscaler)
         log.info("[StubeliusLTXOutput] %s", o)
@@ -408,19 +476,24 @@ class StubeliusLTXSeeds:
         negative = call_node("ConditioningZeroOut", conditioning=negative)[0]
         positive, negative = call_node("LTXVConditioning", positive=positive, negative=negative,
                                        frame_rate=float(frame_rate))[:2]
+        # msr_strength 0 = the Director's reference strength: the full pull the first pass wants
         pos_g, neg_g, lat_g, model_g, _ = _guide(positive, negative, vae, video_latent, guide_data,
-                                                 motion_guide_data, model, *models.ic_lora, setup["scale"], 1.0, 0.0)
+                                                 motion_guide_data, model, *models.ic_lora, setup["scale"], 1.0, 0.0,
+                                                 *models.msr)
         model_g = models.preview(model_g, unique_id, frame_rate)
 
         n = setup["seed_count"]
+        # each seed's sampler/scheduler from the Seed Samplers box; the official pair when it's bypassed
+        per_seed = setup.get("samplers") or [(DEFAULT_SAMPLER, DEFAULT_SCHEDULER)] * 4
         outs, latents, audios, seeds = [], [], [], []
         for k in range(n):
             seed = (setup["seed"] + k * SEED_STEP) % (1 << 64)
+            sampler, scheduler = per_seed[k]
             log.info("[StubeliusLTXSeeds] seed %d/%d: %d  %s/%s  %d steps  cfg %.2f", k + 1, n, seed,
-                     setup["sampler"], setup["scheduler"], setup["steps"], setup["cfg"])
-            sigmas = call_node("BasicScheduler", model=model_g, scheduler=setup["scheduler"],
+                     sampler, scheduler, setup["steps"], setup["cfg"])
+            sigmas = call_node("BasicScheduler", model=model_g, scheduler=scheduler,
                                steps=setup["steps"], denoise=1.0)[0]
-            video, audio = _sample_av(model_g, pos_g, neg_g, setup["cfg"], setup["sampler"], sigmas, seed,
+            video, audio = _sample_av(model_g, pos_g, neg_g, setup["cfg"], sampler, sigmas, seed,
                                       lat_g, audio_latent)
             images, audio_out, cropped = _decode(vae, audio_vae, pos_g, neg_g, video, audio,
                                                  models.tile_size, models.tile_size // 4)
@@ -430,9 +503,9 @@ class StubeliusLTXSeeds:
             seeds.append(seed)
         outs += [ExecutionBlocker(None)] * (8 - len(outs))   # unused seeds: their previews are skipped
 
-        takes = dict(token=next(_TOKENS), count=n, latents=latents, audio=audios, seeds=seeds, cfg=setup["cfg"],
-                     model=model, positive=positive, negative=negative, guide_data=guide_data,
-                     motion_guide_data=motion_guide_data, fps=float(frame_rate))
+        takes = dict(token=next(_TOKENS), count=n, latents=latents, audio=audios, seeds=seeds,
+                     samplers=per_seed[:n], cfg=setup["cfg"], model=model, positive=positive, negative=negative,
+                     guide_data=guide_data, motion_guide_data=motion_guide_data, fps=float(frame_rate))
         return (*outs, takes)
 
 
@@ -558,8 +631,7 @@ class StubeliusLTXFinish:
             log.warning("[StubeliusLTXFinish] WINNER %d but only %d seed(s) rendered, using %d",
                         winner, takes["count"], w)
         o = output
-        images, audio = self._refine(takes, models, w, o["strength"], o["steps"], o["sampler"], o["audio_lock"],
-                                     unique_id)
+        images, audio = self._refine(takes, models, w, o, unique_id)
         target = RESOLUTIONS.get(o["resolution"])
         source_fps = takes["fps"]
         _ram_check(images, target, source_fps, max(source_fps, o["fps"]))
@@ -576,15 +648,19 @@ class StubeliusLTXFinish:
             images = self._upscale(images, target, o["upscaler"])
         if target:
             images = _fit(images, target)   # exact size (DLSS5 only scales by fixed factors)
-        log.info("[StubeliusLTXFinish] winner %d (seed %d), refine %.2f x%d, %s -> %dx%d @ %.3g fps, upscaler %s",
-                 w, takes["seeds"][w - 1], o["strength"], o["steps"], o["resolution"], images.shape[2],
-                 images.shape[1], fps, o["upscaler"] if upscaled else "none")
+        sampler, scheduler = takes.get("samplers", [("?", "?")] * w)[w - 1]
+        log.info("[StubeliusLTXFinish] winner %d (seed %d, %s/%s), refine %.2f x%d, %s -> %dx%d @ %.3g fps, "
+                 "upscaler %s", w, takes["seeds"][w - 1], sampler, scheduler, o["strength"], o["steps"],
+                 o["resolution"], images.shape[2], images.shape[1], fps, o["upscaler"] if upscaled else "none")
         return (images, audio, float(fps))
 
     @staticmethod
-    def _refine(takes, models, w, strength, steps, sampler, audio_lock, node_id=None):
-        """Latent upscale + guides at full size + the tail re-noise, the seed's audio locked."""
-        key = (takes["token"], w, strength, steps, sampler, audio_lock, models.key)
+    def _refine(takes, models, w, o, node_id=None):
+        """Latent upscale + guides at full size + the tail re-noise, the seed's audio locked. The MSR
+        LoRA (when the Director is in Licon MSR mode) comes back with the second-pass strengths."""
+        strength, steps, sampler, audio_lock = o["strength"], o["steps"], o["sampler"], o["audio_lock"]
+        key = (takes["token"], w, strength, steps, sampler, audio_lock, o["msr_lora_strength"], o["msr_reference"],
+               models.key)
         for k, v in _REFINE_MEMO:
             if k == key:
                 log.info("[StubeliusLTXFinish] refine reused from memory (winner %d)", w)
@@ -594,12 +670,15 @@ class StubeliusLTXFinish:
                               upscale_model=models.upscaler(), vae=vae)[0]
         _free_vram("post-upscale")
         pos, neg, lat, model, _ = _guide(takes["positive"], takes["negative"], vae, upsampled, takes["guide_data"],
-                                         takes["motion_guide_data"], takes["model"], *models.ic_lora, 1.0, 1.0, 0.0)
+                                         takes["motion_guide_data"], takes["model"], *models.ic_lora, 1.0, 1.0,
+                                         o["msr_reference"], models.msr_lora, o["msr_lora_strength"])
         model = models.preview(model, node_id, takes["fps"])
         sigmas = refine_sigmas(strength, steps)
-        log.info("[StubeliusLTXFinish] refining winner %d: sigmas %s, %s cfg %.2f, audio %s", w,
+        msr = (f", MSR LoRA {o['msr_lora_strength']:g} reference {o['msr_reference']:g} (if the Director is in "
+               f"Licon MSR mode)" if models.msr_lora != "None" else "")
+        log.info("[StubeliusLTXFinish] refining winner %d: sigmas %s, %s cfg %.2f, audio %s%s", w,
                  [round(float(s), 4) for s in sigmas], sampler, takes["cfg"],
-                 "locked" if audio_lock else "re-rendered")
+                 "locked" if audio_lock else "re-rendered", msr)
         video, audio = _sample_av(model, pos, neg, takes["cfg"], sampler, sigmas, takes["seeds"][w - 1],
                                   lat, {"samples": takes["audio"][w - 1]}, audio_lock=audio_lock)
         _free_vram("pre-decode")
@@ -673,6 +752,7 @@ class StubeliusLTXLivePreview:
 
 NODE_CLASS_MAPPINGS = {
     "StubeliusLTXSetup": StubeliusLTXSetup,
+    "StubeliusLTXSeedSamplers": StubeliusLTXSeedSamplers,
     "StubeliusLTXModels": StubeliusLTXModels,
     "StubeliusLTXOutput": StubeliusLTXOutput,
     "StubeliusLTXSeeds": StubeliusLTXSeeds,
@@ -682,6 +762,7 @@ NODE_CLASS_MAPPINGS = {
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "StubeliusLTXSetup": "Stubelius LTX Setup",
+    "StubeliusLTXSeedSamplers": "Stubelius LTX Seed Samplers",
     "StubeliusLTXModels": "Stubelius LTX Models",
     "StubeliusLTXOutput": "Stubelius LTX Output",
     "StubeliusLTXSeeds": "Stubelius LTX Seeds",

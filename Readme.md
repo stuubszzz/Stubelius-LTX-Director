@@ -9,8 +9,7 @@ frame-interpolated and upscaled. Built on
 This repo used to be called **Stubelius-LTX-Director**. Old links and existing installs keep working.
 
 This is the **LTX 2.5** build. If you are on LTX 2.3, use
-[WhatDreamsCost-CSGlide](https://github.com/CGlide/WhatDreamsCost-CSGlide) instead —
-that version keeps the reference features listed below.
+[WhatDreamsCost-CSGlide](https://github.com/CGlide/WhatDreamsCost-CSGlide) instead.
 
 <div align="center">
 <img width="665" height="669" alt="Capture d&#39;écran 2026-08-12 160229" src="https://github.com/user-attachments/assets/dfb8ebbd-9956-4142-b07b-af7d505a06a7" />
@@ -27,9 +26,10 @@ The HOW TO USE note inside the workflow explains every node.
 
 | Node | Job |
 |---|---|
-| **Stubelius LTX Setup** | How the seeds are rendered: 1–4 seeds, seed, steps, sampler, scheduler, cfg, first-pass scale |
-| **Stubelius LTX Models** | Checkpoint (safetensors or GGUF), distill LoRA, two global LoRAs, IC-LoRA, text encoder, VAEs, latent upscaler, speed/memory options, decode tile size, live preview |
-| **Stubelius LTX Output** | Refine strength / steps / sampler, keep or regenerate the seed's audio, final resolution (native up to 4K), final fps through RIFE, RTX VSR or DLSS5 + Color Lock |
+| **Stubelius LTX Setup** | How the seeds are rendered: 1–4 seeds, seed, steps, cfg, first-pass scale |
+| **Stubelius LTX Seed Samplers** | A sampler and scheduler for each seed; the slots past Setup's seed count are greyed out |
+| **Stubelius LTX Models** | Checkpoint (safetensors or GGUF), distill LoRA, two global LoRAs, IC-LoRA, MSR LoRA (with its first-pass strength), text encoder, VAEs, latent upscaler, speed/memory options, decode tile size, live preview |
+| **Stubelius LTX Output** | Refine strength / steps / sampler, the refine's MSR LoRA and reference strengths, keep or regenerate the seed's audio, final resolution (native up to 4K), final fps through RIFE, RTX VSR or DLSS5 + Color Lock |
 | **LTX Director CS (2.5)** | The timeline: prompts, images, audio and motion tracks, size, frame rate, duration |
 | **Stubelius LTX Seeds** | Renders the seeds at the first-pass scale, with sound, one preview each |
 | **Stubelius LTX Finish** | WINNER 1–4 (0 = hold after the seeds). Latent x2 upscale + refine at full size, then RIFE and the upscaler. Changing it re-runs only the finish, from cache |
@@ -67,6 +67,7 @@ Official files from [Lightricks/LTX-2.5](https://huggingface.co/Lightricks/LTX-2
 | `models/vae` | [`ltx-2.5-video-vae-bf16.safetensors`](https://huggingface.co/Lightricks/LTX-2.5/resolve/main/vae/ltx-2.5-video-vae-bf16.safetensors), [`ltx-2.5-audio-vae-bf16.safetensors`](https://huggingface.co/Lightricks/LTX-2.5/resolve/main/vae/ltx-2.5-audio-vae-bf16.safetensors) |
 | `models/latent_upscale_models` | [`ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors`](https://huggingface.co/Lightricks/LTX-2.5/resolve/main/latent_upscale_models/ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors) |
 | `models/vae` | optional live preview: a tiny LTX VAE such as `taeltx2_3.safetensors`, picked as "live preview" on the Models node |
+| `models/loras` | optional, for the Director's Licon MSR reference option: Licon's LTX 2.5 MSR LoRA (`LTX-2.5-Licon-MSR-V1.safetensors`), picked as "msr lora" on the Models node. The LTX 2.3 MSR LoRAs don't work on 2.5 |
 
 2.5 needs the Gemma 4 text encoder and will not load a 2.3 one. RIFE downloads its checkpoint the
 first time a final fps above the Director's is used.
@@ -85,23 +86,22 @@ lower the decode tile size.
 - Chunk render for long videos, with audio
 - Packed timelines (save a timeline with its assets embedded)
 
-### What is disabled on 2.5
+### Reference images (Licon MSR)
 
-The reference features are **hidden in this build**, not removed:
+The reference features are on in this build (`REFERENCE_FEATURES` in `ltx_director.js` and
+`ltx_director.py`). **Licon MSR** runs on the Stubelius MSR25 engine made for LTX 2.5: each
+character or ingredient image becomes a slot-embedded reference, as in
+[liconstudio/ComfyUI-LTX2.5-MSR](https://github.com/liconstudio/ComfyUI-LTX2.5-MSR).
 
-- `@ref` reference sheets
-- Ghost Mask / Licon MSR reference modes
-- MSR prefix frames
-- The Analyze backend (Ollama / LM Studio captioning)
+In Stubelius Ultimate LTX, choose Licon MSR as the Director's reference option and pick the
+LTX 2.5 MSR LoRA on the Models node. It is used in both passes:
 
-These depend on behaviour LTX 2.3 was trained for. LTX 2.5 has not learned it, and
-leaving them reachable corrupts the render rather than degrading it — so they are
-switched off at both the UI and the point where they are applied. A timeline saved on
-2.3 that still carries reference data will load and render fine; the reference part is
-ignored with a note in the console.
+- **Seeds (first pass):** the Models node's MSR LoRA strength, and the Director's reference strength.
+- **Refine (second pass):** the Output node's refine MSR LoRA strength and refine MSR reference.
+  About 0.4 keeps the detail without the references repainting the opening. 0 means the
+  Director's value.
 
-If Lightricks adds support, flipping `REFERENCE_FEATURES` to true in `ltx_director.js`
-and `ltx_director.py` brings all of it back.
+Ghost Mask and the `@ref` sheets were made for LTX 2.3's behaviour.
 
 ### Older nodes
 

@@ -20,7 +20,7 @@ const THEMES = {
 const STYLE_ID = "stubelius-ltx-workflow-theme";
 // Stage of each dashboard node: 0 setup, 1 models, 2 director / seeds (the default), 3 finish.
 const STAGES = {
-  StubeliusLTXSetup: 0, StubeliusLTXTheme: 0, MarkdownNote: 0,
+  StubeliusLTXSetup: 0, StubeliusLTXSeedSamplers: 0, StubeliusLTXTheme: 0, MarkdownNote: 0,
   StubeliusLTXModels: 1,
   StubeliusLTXFinish: 3,
 };
