@@ -28,7 +28,7 @@ The HOW TO USE note inside the workflow explains every node.
 |---|---|
 | **Stubelius LTX Setup** | How the seeds are rendered: 1–4 seeds, seed, steps, cfg, first-pass scale |
 | **Stubelius LTX Seed Samplers** | A sampler and scheduler for each seed; the slots past Setup's seed count are greyed out |
-| **Stubelius LTX Models** | Checkpoint (safetensors or GGUF), distill LoRA, two global LoRAs, IC-LoRA, MSR LoRA (with its first-pass strength), text encoder, VAEs, latent upscaler, speed/memory options, decode tile size, live preview |
+| **Stubelius LTX Models** | Checkpoint (safetensors or GGUF), distill LoRA, two global LoRAs, IC-LoRA, MSR LoRA (with its first-pass strength), text encoder, VAEs, latent upscaler, attention (Sage or Comfy Kitchen), memory options, decode tile size, live preview |
 | **Stubelius LTX Output** | Refine strength / steps / sampler, the refine's MSR LoRA and reference strengths, keep or regenerate the seed's audio, final resolution (native up to 4K), final fps through RIFE, RTX VSR or DLSS5 + Color Lock |
 | **LTX Director CS (2.5)** | The timeline: prompts, images, audio and motion tracks, size, frame rate, duration |
 | **Stubelius LTX Seeds** | Renders the seeds at the first-pass scale, with sound, one preview each |

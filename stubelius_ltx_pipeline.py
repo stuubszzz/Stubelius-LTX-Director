@@ -187,8 +187,9 @@ class StubeliusLTXSeedSamplers:
 _BASE, _PATCHED, _AUX = {}, {}, {}
 # the Models settings that change the patched model (the rest are files loaded on the side)
 MODEL_KEYS = ("diffusion_model", "distill_lora", "distill_lora_strength", "extra_lora_1", "extra_lora_1_strength",
-              "extra_lora_2", "extra_lora_2_strength", "sage_attention", "memory_efficient_attention",
+              "extra_lora_2", "extra_lora_2_strength", "attention", "memory_efficient_attention",
               "chunk_feed_forward")
+ATTENTIONS = ["sage attention", "comfy kitchen attention", "comfyui default"]
 
 
 def _model_key(cfg):
@@ -231,8 +232,16 @@ class LTXModels:
                     raise FileNotFoundError(f"[StubeliusLTXModels] LoRA '{name}' not found in models/loras")
                 m, _ = comfy.sd.load_lora_for_models(m, None, comfy.utils.load_torch_file(path, safe_load=True),
                                                      strength, 0)
-        if c["sage_attention"]:
+        # Sage (KJ) and Comfy Kitchen (core) both set the model's attention override, so one or the other
+        if c["attention"] == "sage attention":
             m = _patch(m, "PathchSageAttentionKJ", "sage attention", sage_attention="auto", allow_compile=False)
+        elif c["attention"] == "comfy kitchen attention":
+            import comfy.ldm.modules.attention as attention
+            if attention.COMFY_KITCHEN_INT8_ATTENTION_IS_AVAILABLE:
+                m = _patch(m, "ModelAttentionBackend", "comfy kitchen attention", attention="comfy kitchen attention")
+            else:
+                log.warning("[StubeliusLTXModels] comfy kitchen attention skipped: this comfy-kitchen build has no "
+                            "INT8 attention (Nvidia / AMD only); ComfyUI's default attention is used")
         if c["memory_efficient_attention"]:
             m = _patch(m, "LTX2MemoryEfficientSageAttentionPatch", "memory-efficient attention", triton_kernels=True)
         if c["chunk_feed_forward"]:
@@ -354,9 +363,13 @@ class StubeliusLTXModels:
                 "latent_upscaler": (upscalers, {"default": _first_match(upscalers, "ltx-2.5-latent-spatial-upscaler-x2"),
                     "tooltip": "Takes the winner from the seed size to full size before the refine. "
                                "Match Setup's first-pass scale (x2 -> 0.5)."}),
-                "sage_attention": ("BOOLEAN", {"default": True, "tooltip": "Sage attention (KJNodes, auto kernel)."}),
+                "attention": (ATTENTIONS, {"default": "sage attention", "tooltip":
+                    "sage attention: SageAttention through KJNodes (auto kernel). comfy kitchen attention: "
+                    "ComfyUI's own quantized INT8 attention (comfy-kitchen, Nvidia / AMD). comfyui default: no "
+                    "patch, whatever ComfyUI was started with. They replace each other, so pick one."}),
                 "memory_efficient_attention": ("BOOLEAN", {"default": False, "tooltip":
-                    "KJ's memory-efficient LTX-2 attention (saves VRAM)."}),
+                    "KJ's memory-efficient LTX-2 attention (saves VRAM). It swaps each block's self-attention for "
+                    "its own Sage kernel, whichever attention is picked above."}),
                 "chunk_feed_forward": ("BOOLEAN", {"default": False, "tooltip": "Feed-forward in chunks (saves VRAM)."}),
                 "decode_tile_size": ("INT", {"default": 768, "min": 256, "max": 2048, "step": 64, "tooltip":
                     "Spatial tile of the video decode, overlap a quarter of it (each clip is decoded in one "
