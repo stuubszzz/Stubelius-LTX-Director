@@ -185,24 +185,130 @@ def _free_vram(reason=""):
         log.warning("[StubeliusLTX] VRAM free failed: %s", e)
 
 
+WHOLE_CLIP = 4096       # VAEDecodeTiled's largest temporal_size: every frame in one pass
+MIN_DECODE_TILE = 256   # px; smaller spatial tiles are only tried in temporal chunks
+DECODE_TILE_STEP = 64   # px, the Models node's decode_tile_size step
+MIN_CHUNK = 3           # latent frames: the 2-frame crossfade overlap plus one
+GB = 1024 ** 3
+
+
+def _is_oom(e):
+    import comfy.model_management as mm
+    is_oom = getattr(mm, "is_oom", None)   # also catches the AcceleratorError form of newer torch
+    return is_oom(e) if is_oom else isinstance(e, mm.OOM_EXCEPTION)
+
+
+def _decode_need(vae, shape, frames, tile):
+    """ComfyUI's own estimate of one tile's decode memory: VAEDecodeTiled with this tile and
+    temporal_size, on a latent of `shape`. ComfyUI sizes every decode's model unloading with it;
+    for the LTX 2.5 VAE it runs about 10% above the measured peak."""
+    s, tc = vae.spacial_compression_decode(), vae.temporal_compression_decode()
+    _, c, t, h, w = shape
+    n = max(1, tile // s)
+    return vae.memory_used_decode((1, c, min(t, max(2, frames // tc)), min(h, n), min(w, n)), vae.vae_dtype)
+
+
+def _decode_budget(vae, shape, tile_size):
+    """Bytes of VRAM the decode may use, or None when the device doesn't report it (CPU,
+    DirectML): what's free once ComfyUI has made room for the whole-clip decode (it unloads or
+    evicts other models, as for any decode), minus the VRAM reserved for other apps."""
+    import comfy.model_management as mm
+    device = getattr(vae, "device", None)
+    if getattr(device, "type", "cpu") == "cpu" or mm.is_directml_enabled():
+        return None
+    try:
+        need = _decode_need(vae, shape, WHOLE_CLIP, tile_size)
+        mm.load_models_gpu([vae.patcher], memory_required=need, force_full_load=getattr(vae, "disable_offload", False))
+        budget = vae.patcher.get_free_memory(device) - mm.extra_reserved_memory()
+    except Exception as e:  # noqa: BLE001 - no estimate: the plain one-pass decode, as before
+        log.warning("[StubeliusLTX] free VRAM unknown (%s): decoding every frame in one pass.", e)
+        return None
+    out = getattr(vae, "output_device", None)
+    if getattr(out, "type", "cpu") != "cpu":
+        # --gpu-only: the tiler assembles the whole video in VRAM (float32 RGB + a weight channel)
+        _, _, t, h, w = shape
+        s, tc = vae.spacial_compression_decode(), vae.temporal_compression_decode()
+        budget -= 16 * ((t - 1) * tc + 1) * h * s * w * s
+    return budget
+
+
+def _decode_plan(vae, shape, tile_size, budget):
+    """(tile_size, temporal_size) for VAEDecodeTiled. Every frame in one temporal pass (no seams
+    in time) at the largest spatial tile, from tile_size down to MIN_DECODE_TILE, whose estimate
+    fits the budget. Past that, the longest crossfaded temporal chunks that fit at the smallest
+    tile, with the tile grown back while it still fits."""
+    if budget is None:
+        return tile_size, WHOLE_CLIP
+    tiles = list(range(tile_size, MIN_DECODE_TILE - 1, -DECODE_TILE_STEP)) or [tile_size]
+    for tile in tiles:
+        if _decode_need(vae, shape, WHOLE_CLIP, tile) <= budget:
+            return tile, WHOLE_CLIP
+    tile, tc = tiles[-1], vae.temporal_compression_decode()
+    chunk = min(shape[2], WHOLE_CLIP // tc)
+    while chunk > MIN_CHUNK and _decode_need(vae, shape, chunk * tc, tile) > budget:
+        chunk -= 1
+    while tile + DECODE_TILE_STEP <= tile_size and _decode_need(vae, shape, chunk * tc, tile + DECODE_TILE_STEP) <= budget:
+        tile += DECODE_TILE_STEP
+    return tile, chunk * tc
+
+
+def _log_plan(vae, shape, tile_size, budget, tile, frames):
+    if budget is None:
+        return
+    tc = vae.temporal_compression_decode()
+    n = (shape[2] - 1) * tc + 1
+    need, full = _decode_need(vae, shape, frames, tile) / GB, _decode_need(vae, shape, WHOLE_CLIP, tile_size) / GB
+    if (tile, frames) == (tile_size, WHOLE_CLIP):
+        log.info("[StubeliusLTX] decode: %d frames in one pass at %d px tiles, ~%.1f GB of %.1f GB free VRAM.",
+                 n, tile, need, budget / GB)
+    elif frames == WHOLE_CLIP:
+        log.info("[StubeliusLTX] decode: %d frames at %d px tiles would need ~%.1f GB, %.1f GB VRAM is free - "
+                 "one pass at %d px tiles instead (~%.1f GB).", n, tile_size, full, budget / GB, tile, need)
+    else:
+        log.warning("[StubeliusLTX] decode: %d frames don't fit %.1f GB of free VRAM in one pass even at %d px tiles - "
+                    "%d-frame chunks with a crossfade at %d px tiles instead (~%.1f GB).", n, budget / GB,
+                    min(tile_size, MIN_DECODE_TILE), frames - tc + 1, tile, need)
+    if need > budget / GB:
+        log.warning("[StubeliusLTX] decode: even the smallest decode needs ~%.1f GB and only %.1f GB VRAM is free - "
+                    "it may spill into system RAM and crawl. Close other apps using the GPU.", need, budget / GB)
+
+
 def _decode_video(vae, samples, tile_size, tile_overlap):
     """Spatially tiled, temporally whole. The LTX 2.5 video VAE decodes with a diffusion
     decoder, and ComfyUI's generic tiler renders each temporal chunk as a standalone clip
     (own noise, chunk ends treated as clip ends) - with the old 8-frame overlap that was a
     1-frame blend and showed as a detail pop every 56 frames. Chunks with a 16-frame
-    overlap (9-frame crossfade, the official template setting) are only the OOM fallback."""
-    import comfy.model_management as mm
-    try:
-        return call_node("VAEDecodeTiled", vae=vae, samples=samples,
-                         tile_size=tile_size, overlap=tile_overlap,
-                         temporal_size=4096, temporal_overlap=16)[0]
-    except mm.OOM_EXCEPTION:
-        log.warning("[StubeliusLTX] full-length decode ran out of VRAM - retrying in 64-frame "
-                    "chunks with a crossfade (a smaller tile_size avoids this).")
-    _free_vram("decode OOM retry")
-    return call_node("VAEDecodeTiled", vae=vae, samples=samples,
-                     tile_size=tile_size, overlap=tile_overlap,
-                     temporal_size=64, temporal_overlap=16)[0]
+    overlap (9-frame crossfade, the official template setting) are only the last resort.
+
+    Sized before it starts, from ComfyUI's memory estimate and the VRAM that's actually free,
+    rather than by catching an out-of-memory error: on Windows the NVIDIA driver's default
+    sysmem fallback lets allocations past the card's VRAM spill into system RAM instead of
+    failing, so the error never comes - the decode crawls, and a long clip can reset the
+    driver and take ComfyUI down with it. The out-of-memory retry stays for estimates that
+    fall short."""
+    lat = samples["samples"]
+    if getattr(lat, "is_nested", False):
+        lat = lat.unbind()[0]
+    if lat.ndim != 5 or not vae.temporal_compression_decode():
+        return call_node("VAEDecodeTiled", vae=vae, samples=samples, tile_size=tile_size,
+                         overlap=tile_overlap, temporal_size=WHOLE_CLIP, temporal_overlap=16)[0]
+    budget = _decode_budget(vae, lat.shape, tile_size)
+    tile, frames = _decode_plan(vae, lat.shape, tile_size, budget)
+    _log_plan(vae, lat.shape, tile_size, budget, tile, frames)
+    for attempt in range(3):
+        try:
+            return call_node("VAEDecodeTiled", vae=vae, samples=samples, tile_size=tile,
+                             overlap=min(tile_overlap, tile // 4), temporal_size=frames, temporal_overlap=16)[0]
+        except Exception as e:  # noqa: BLE001
+            if attempt == 2 or not _is_oom(e):
+                raise
+        # outside the except block, so the failed attempt's tensors can be freed first
+        _free_vram("decode OOM retry")
+        failed = tile
+        tile, frames = _decode_plan(vae, lat.shape, tile_size, _decode_need(vae, lat.shape, frames, tile) / 2)
+        chunks = "" if frames == WHOLE_CLIP else f", {frames - vae.temporal_compression_decode() + 1}-frame chunks"
+        log.warning("[StubeliusLTX] decode ran out of VRAM at %d px tiles - retrying with half the memory: %d px "
+                    "tiles%s.", failed, tile, chunks)
 
 
 def _decode(vae, audio_vae, positive, negative, video_latent, audio_latent,

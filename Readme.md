@@ -72,8 +72,17 @@ Official files from [Lightricks/LTX-2.5](https://huggingface.co/Lightricks/LTX-2
 2.5 needs the Gemma 4 text encoder and will not load a 2.3 one. RIFE downloads its checkpoint the
 first time a final fps above the Director's is used.
 
-Developed on an RTX 5090 (32 GB). With less VRAM, turn on the Models node's memory options and
-lower the decode tile size.
+Developed on an RTX 5090 (32 GB). With less VRAM, turn on the Models node's memory options.
+
+The video decode sizes itself to the free VRAM before it starts. When a clip doesn't fit at the
+decode tile size, it steps the tile down and still decodes every frame in one pass; only below
+256 px does it decode in crossfaded chunks. It doesn't wait for an out-of-memory error: on
+Windows, NVIDIA's driver lets an allocation past the card's VRAM spill into system RAM
+instead, so that error never comes. The spilled decode crawls and can reset the driver.
+
+To get a clean out-of-memory error from the rest of ComfyUI too, open NVIDIA Control Panel →
+Manage 3D Settings → Program Settings. Pick ComfyUI's `python.exe` and set **CUDA - Sysmem
+Fallback Policy** to **Prefer No Sysmem Fallback**.
 
 ## The Director
 

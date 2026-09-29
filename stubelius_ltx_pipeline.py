@@ -375,9 +375,11 @@ class StubeliusLTXModels:
                     "its own Sage kernel, whichever attention is picked above."}),
                 "chunk_feed_forward": ("BOOLEAN", {"default": False, "tooltip": "Feed-forward in chunks (saves VRAM)."}),
                 "decode_tile_size": ("INT", {"default": 768, "min": 256, "max": 2048, "step": 64, "tooltip":
-                    "Spatial tile of the video decode, overlap a quarter of it (each clip is decoded in one "
-                    "temporal pass). Bigger = fewer seams: 768 is Lightricks' spatial-only setting, about "
-                    "17 GB for 5 s at 1280x704; 512 about 8 GB. Lower it if the decode runs out of VRAM."}),
+                    "Largest spatial tile of the video decode, overlap a quarter of it (each clip is decoded "
+                    "in one temporal pass). Bigger = fewer seams: 768 is Lightricks' spatial-only setting, "
+                    "about 17 GB for 5 s at 1280x704; 512 about 8 GB. When a clip doesn't fit in the free VRAM "
+                    "at this tile, the decode steps the tile down by itself (below 256: crossfaded chunks) "
+                    "instead of spilling into system RAM."}),
                 "live_preview": (tiny, {"default": _first_match(tiny, "taeltx2_5", "taeltx"), "tooltip":
                     "Tiny LTX VAE (models/vae) for the LIVE PREVIEW panel while Seeds and Finish sample. "
                     "off = ComfyUI's default preview on the sampling node."}),
