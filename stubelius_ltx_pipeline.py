@@ -1,8 +1,8 @@
 """Stubelius Ultimate LTX: Setup, Seed Samplers, Models, Output, Seeds and Finish around the LTX 2.5 Director.
 
 Setup   decides HOW the seeds are rendered: how many (1-4), the seed, steps, cfg and the first-pass
-        scale. There are no modes: LTX 2.5 always renders its seeds small and refines only the
-        winner at full size.
+        scale. At 1.0 (the default) the seeds render at the Director's full size and the winner is
+        finished as rendered; below 1 they render smaller and Finish upscales + refines the winner.
 Seed Samplers  the sampler and scheduler of each seed (the slots past Setup's count are greyed out).
 Models  loads the checkpoint, text encoder, VAEs and latent upscaler and applies the LoRAs and the
         speed/memory patches. Its model / clip / vae / audio_vae feed the Director; the bundle
@@ -14,9 +14,10 @@ Output  decides what comes OUT: how far the full-size refine may move the winner
         only Finish, so changing it after a seed hunt re-runs only the finish.
 Seeds   renders 1-4 full seeds with sound at the first-pass scale (the guides are built once) and
         hands them to Finish as one bundle (takes).
-Finish  turns the WINNER into the final video: latent upscale and refine at full size (the seed's
-        audio locked), then RIFE to the final frame rate and RTX VSR or DLSS5 + Color Lock to the
-        final resolution. The refine is memoised, so frame rate / upscaler changes don't repeat it.
+Finish  turns the WINNER into the final video: as rendered when the seeds are full size, else a latent
+        upscale and refine to full size (the seed's audio locked); then RIFE to the final frame rate
+        and RTX VSR or DLSS5 + Color Lock to the final resolution. The refine is memoised, so frame
+        rate / upscaler changes don't repeat it.
 Speed/memory patches, the live preview and the RTX VSR / DLSS5 / GGUF nodes are called by class
 name at runtime and skipped (or reported clearly) when their pack isn't installed.
 """
@@ -133,9 +134,11 @@ class StubeliusLTXSetup:
                 "cfg": ("FLOAT", {"default": 1.0, "min": 1.0, "max": 20.0, "step": 0.1, "tooltip":
                     "1.0 for the distilled model (the negative is skipped, twice as fast). Raise only with a "
                     "non-distilled checkpoint."}),
-                "first_pass_scale": ("FLOAT", {"default": 0.5, "min": 0.25, "max": 1.0, "step": 0.05, "tooltip":
-                    "Seeds render at this fraction of the Director's size; Finish's latent upscaler takes the "
-                    "winner back up. Match the upscaler: x2 -> 0.5."}),
+                "first_pass_scale": ("FLOAT", {"default": 1.0, "min": 0.25, "max": 1.0, "step": 0.05, "tooltip":
+                    "1.0 = the seeds render at the Director's full size and the winner is finished as rendered: "
+                    "real HD detail. Below 1 = quicker, softer seeds; Finish then takes the winner back up with the "
+                    "latent upscaler and the refine (x2 upscaler -> 0.5), which can't draw the detail a half-size "
+                    "render never had."}),
             }
         }
 
@@ -403,10 +406,11 @@ class StubeliusLTXOutput:
         return {
             "required": {
                 "refine_strength": ("FLOAT", {"default": 0.35, "min": 0.05, "max": 1.0, "step": 0.01, "tooltip":
-                    "How far the full-size refine may move the winner: the noise level (sigma) it restarts "
-                    "from. 0.3-0.45 keeps the seed's look and adds detail. Lightricks' two-stage pipeline "
-                    "restarts at 0.91 (ComfyUI's template at 0.85): that re-imagines the detail and can "
-                    "change the whole look."}),
+                    "The refine settings only apply when Setup's first-pass scale is below 1; full-size seeds are "
+                    "finished as rendered. How far the refine of the upscaled winner may move it: the noise level "
+                    "(sigma) it restarts from. 0.3-0.45 keeps the seed's look. Higher (Lightricks' two-stage "
+                    "pipeline restarts at 0.91) changes the look but adds little detail: a half-size seed stays "
+                    "soft either way."}),
                 "refine_steps": ("INT", {"default": 4, "min": 1, "max": 12, "tooltip":
                     "Steps from refine_strength down to 0, evenly spaced."}),
                 "refine_sampler": (list(comfy.samplers.KSampler.SAMPLERS), {"default": "euler", "tooltip":
@@ -498,7 +502,7 @@ class StubeliusLTXSeeds:
         n = setup["seed_count"]
         # each seed's sampler/scheduler from the Seed Samplers box; the official pair when it's bypassed
         per_seed = setup.get("samplers") or [(DEFAULT_SAMPLER, DEFAULT_SCHEDULER)] * 4
-        outs, latents, audios, seeds = [], [], [], []
+        outs, latents, audios, seeds, decoded = [], [], [], [], []
         for k in range(n):
             seed = (setup["seed"] + k * SEED_STEP) % (1 << 64)
             sampler, scheduler = per_seed[k]
@@ -514,11 +518,13 @@ class StubeliusLTXSeeds:
             latents.append(cropped["samples"])
             audios.append(audio["samples"])
             seeds.append(seed)
+            decoded.append((images, audio_out))   # the same tensors as the previews: no extra memory
         outs += [ExecutionBlocker(None)] * (8 - len(outs))   # unused seeds: their previews are skipped
 
         takes = dict(token=next(_TOKENS), count=n, latents=latents, audio=audios, seeds=seeds,
                      samplers=per_seed[:n], cfg=setup["cfg"], model=model, positive=positive, negative=negative,
-                     guide_data=guide_data, motion_guide_data=motion_guide_data, fps=float(frame_rate))
+                     guide_data=guide_data, motion_guide_data=motion_guide_data, fps=float(frame_rate),
+                     scale=setup["scale"], decoded=decoded)
         return (*outs, takes)
 
 
@@ -644,7 +650,14 @@ class StubeliusLTXFinish:
             log.warning("[StubeliusLTXFinish] WINNER %d but only %d seed(s) rendered, using %d",
                         winner, takes["count"], w)
         o = output
-        images, audio = self._refine(takes, models, w, o, unique_id)
+        full_size = takes.get("scale", 0.5) >= 0.999
+        if full_size:
+            # rendered at the Director's size already: a latent upscale + refine would only blur it
+            images, audio = takes["decoded"][w - 1]
+            log.info("[StubeliusLTXFinish] seeds are full size: winner %d finished as rendered (no latent upscale "
+                     "or refine)", w)
+        else:
+            images, audio = self._refine(takes, models, w, o, unique_id)
         target = RESOLUTIONS.get(o["resolution"])
         source_fps = takes["fps"]
         _ram_check(images, target, source_fps, max(source_fps, o["fps"]))
@@ -662,9 +675,10 @@ class StubeliusLTXFinish:
         if target:
             images = _fit(images, target)   # exact size (DLSS5 only scales by fixed factors)
         sampler, scheduler = takes.get("samplers", [("?", "?")] * w)[w - 1]
-        log.info("[StubeliusLTXFinish] winner %d (seed %d, %s/%s), refine %.2f x%d, %s -> %dx%d @ %.3g fps, "
-                 "upscaler %s", w, takes["seeds"][w - 1], sampler, scheduler, o["strength"], o["steps"],
-                 o["resolution"], images.shape[2], images.shape[1], fps, o["upscaler"] if upscaled else "none")
+        refine = "as rendered" if full_size else f"refine {o['strength']:.2f} x{o['steps']}"
+        log.info("[StubeliusLTXFinish] winner %d (seed %d, %s/%s), %s, %s -> %dx%d @ %.3g fps, upscaler %s",
+                 w, takes["seeds"][w - 1], sampler, scheduler, refine, o["resolution"], images.shape[2],
+                 images.shape[1], fps, o["upscaler"] if upscaled else "none")
         return (images, audio, float(fps))
 
     @staticmethod

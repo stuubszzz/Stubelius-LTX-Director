@@ -32,7 +32,7 @@ The HOW TO USE note inside the workflow explains every node.
 | **Stubelius LTX Output** | Refine strength / steps / sampler, the refine's MSR LoRA and reference strengths, keep or regenerate the seed's audio, final resolution (native up to 4K), final fps through RIFE, RTX VSR or DLSS5 + Color Lock |
 | **LTX Director CS (2.5)** | The timeline: prompts, images, audio and motion tracks, size, frame rate, duration |
 | **Stubelius LTX Seeds** | Renders the seeds at the first-pass scale, with sound, one preview each |
-| **Stubelius LTX Finish** | WINNER 1–4 (0 = hold after the seeds). Latent x2 upscale + refine at full size, then RIFE and the upscaler. Changing it re-runs only the finish, from cache |
+| **Stubelius LTX Finish** | WINNER 1–4 (0 = hold after the seeds). Full-size seeds (first-pass scale 1.0, the default) are finished as rendered; smaller seeds get a latent x2 upscale + refine. Then RIFE and the upscaler. Changing it re-runs only the finish, from cache |
 | **Stubelius LTX Live Preview** | Watch Seeds and Finish while they sample |
 | **Stubelius LTX RIFE to FPS**, **Stubelius LTX Color Lock** | Frame rate conversion that keeps hard cuts clean; restores the original colours after DLSS5 |
 | **Stubelius LTX Theme** | Colour theme for this workflow only |
