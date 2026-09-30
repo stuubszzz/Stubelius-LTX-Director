@@ -32,7 +32,7 @@ import comfy.utils
 import folder_paths
 import torch
 
-from .stubelius_ltx import _decode, _free_vram, _guide, _sample_av, _unwrap, call_node
+from .stubelius_ltx import _decode, _free_vram, _guide, _holds_run_models, _sample_av, _unwrap, call_node
 
 log = logging.getLogger(__name__)
 
@@ -487,6 +487,7 @@ class StubeliusLTXSeeds:
     FUNCTION = "run"
     CATEGORY = "StubeliusLTX"
 
+    @_holds_run_models(lambda self, setup, models, model, *a, **k: model)
     def run(self, setup, models, model, positive, negative, video_latent, audio_latent, guide_data,
             frame_rate, motion_guide_data=None, unique_id=None):
         from comfy_execution.graph import ExecutionBlocker
@@ -684,6 +685,7 @@ class StubeliusLTXFinish:
         return (images, audio, float(fps))
 
     @staticmethod
+    @_holds_run_models(lambda takes, *a, **k: takes["model"])
     def _refine(takes, models, w, o, node_id=None):
         """Latent upscale + guides at full size + the tail re-noise, the seed's audio locked. The MSR
         LoRA (when the Director is in Licon MSR mode) comes back with the second-pass strengths."""

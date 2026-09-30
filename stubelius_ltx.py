@@ -17,6 +17,8 @@ time and kwargs are filtered against each node's live INPUT_TYPES, so version
 drift in the CS / LTXVideo packs cannot break the calls.
 """
 
+import functools
+import gc
 import json
 import logging
 
@@ -165,6 +167,60 @@ def _sample_av(model, positive, negative, cfg, sampler_name, sigmas, seed,
                     sampler=sampler, sigmas=sigmas, latent_image=combined)[0]
     video, audio = call_node("LTXVSeparateAVLatent", av_latent=out, latent=out, samples=out)[:2]
     return video, audio
+
+
+_HELD = []   # model clones of the last cancelled or failed run, see _hold_run_models()
+
+
+def _hold_run_models(*roots):
+    """Keep a cancelled or failed run's model clones alive until the next run starts.
+
+    ComfyUI hands the exception back up its executor and keeps it in a reference cycle, and the
+    run's frames go with it. The clones made during the run (the guide's IC-LoRA and MSR LoRA
+    clones, the per-run live-preview clone) are then freed by the garbage collector in one pass.
+    ComfyUI follows a loaded model from a freed clone to its parent, and loses it when both go in
+    the same pass: "memory leak with model LTXAV" and a full garbage collect on every later model
+    load, until a restart.
+
+    Nothing is freed here: ComfyUI still cleans up after the exception, and freeing a run's
+    memory before that can take ComfyUI down. This only keeps each loaded clone's chain back to
+    `roots` (the run's input models) alive."""
+    import comfy.model_management as mm
+    roots = [r for r in roots if r is not None]
+    for loaded in list(mm.current_loaded_models):
+        chain, patcher = [], loaded.model
+        while patcher is not None:
+            chain.append(patcher)
+            if any(patcher is r for r in roots):
+                _HELD.extend(chain)
+                break
+            patcher = getattr(patcher, "parent", None)
+
+
+def _release_held_models():
+    """Drop what _hold_run_models() kept, at the start of the next run. Collect first, while it
+    is still held, so the cancelled run's frames are gone and the clones then go one at a time,
+    each handing ComfyUI's tracking on to its parent."""
+    if _HELD:
+        gc.collect()
+        _HELD.clear()
+
+
+def _holds_run_models(root):
+    """For a node method that samples with per-run clones of a model: release what the last
+    cancelled run left, and hold this run's clones if it is cancelled or fails. `root` picks
+    the run's input model out of the method's arguments."""
+    def deco(fn):
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            _release_held_models()
+            try:
+                return fn(*args, **kwargs)
+            except BaseException:
+                _hold_run_models(root(*args, **kwargs))
+                raise
+        return wrapper
+    return deco
 
 
 def _free_vram(reason=""):
@@ -364,6 +420,7 @@ class StubeliusLTXSeedHunt:
     FUNCTION = "hunt"
     CATEGORY = "StubeliusLTX"
 
+    @_holds_run_models(lambda self, model, *a, **k: model)
     def hunt(self, model, positive, negative, vae, audio_vae, latent, audio_latent,
              guide_data, ic_lora_name, ic_lora_strength, scale_by,
              image_attention_strength, msr_strength, msr_lora_name, msr_lora_strength,
@@ -489,6 +546,7 @@ class StubeliusLTXRefine:
                         sigma_mode=None, manual_sigmas=None):
         return True
 
+    @_holds_run_models(lambda self, model, *a, **k: model)
     def refine(self, model, positive, negative, vae, audio_vae, upscale_model, guide_data,
                candidate_1=None, candidate=1, sync_from_hunt=True,
                audio_mode="keep candidate audio (locked)",
