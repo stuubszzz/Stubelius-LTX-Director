@@ -5,6 +5,8 @@ The LTX 2.5 Director timeline node plus **Stubelius Ultimate LTX**: one clean LT
 Render 1–4 full seeds with sound, pick the winner, and only the winner gets refined at full size,
 frame-interpolated and upscaled.
 
+Install steps, settings and RTX 5090 render times: [the Stubelius Ultimate LTX 2.5 guide](https://stuubzzz.studio/blog/ltx-2-5-director-comfyui-multishot-timeline/).
+
 <div align="center">
 <a href="docs/ultimate_ltx_workflow.webp?raw=true"><img src="docs/ultimate_ltx_workflow.webp" alt="The Stubelius Ultimate LTX workflow in ComfyUI: setup, models and output on the left, the Director timeline in the middle, the seed previews and the final video on the right" /></a>
 <br>
