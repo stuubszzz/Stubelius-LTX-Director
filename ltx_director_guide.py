@@ -637,9 +637,12 @@ class LTXDirectorGuide:
                 positive, negative, latent_image, noise_mask = nodes_lt.LTXVAddGuide.append_keyframe(
                     positive, negative, frame_idx, latent_image, noise_mask, guide_latent, strength, scale_factors
                 )
-                if is_lora_active:
-                    positive = _append_guide_attention_entry(positive, tokens_added, guide_orig_shape, attention_strength=image_attention_strength)
-                    negative = _append_guide_attention_entry(negative, tokens_added, guide_orig_shape, attention_strength=image_attention_strength)
+                # Register every guide, as core LTXVAddGuide does: once any guide has an entry (the
+                # Licon MSR references always do), ComfyUI requires the entries to cover all guide
+                # tokens. Without an IC-LoRA the strength stays 1.0, which leaves attention untouched.
+                attention = image_attention_strength if is_lora_active else 1.0
+                positive = _append_guide_attention_entry(positive, tokens_added, guide_orig_shape, attention_strength=attention)
+                negative = _append_guide_attention_entry(negative, tokens_added, guide_orig_shape, attention_strength=attention)
 
             # B. Process Motion Video Segments
             for seg in segments:
@@ -716,9 +719,10 @@ class LTXDirectorGuide:
                     positive, negative, latent_image, noise_mask = nodes_lt.LTXVAddGuide.append_keyframe(
                         positive, negative, frame_idx, latent_image, noise_mask, guide_latent, video_strength, scale_factors, guide_mask=guide_mask, latent_downscale_factor=float(latent_downscale_factor), causal_fix=causal_fix
                     )
-                    if is_lora_active:
-                        positive = _append_guide_attention_entry(positive, tokens_added, guide_orig_shape, attention_strength=video_attention_strength)
-                        negative = _append_guide_attention_entry(negative, tokens_added, guide_orig_shape, attention_strength=video_attention_strength)
+                    # Registered for the same reason as the image guides above.
+                    attention = video_attention_strength if is_lora_active else 1.0
+                    positive = _append_guide_attention_entry(positive, tokens_added, guide_orig_shape, attention_strength=attention)
+                    negative = _append_guide_attention_entry(negative, tokens_added, guide_orig_shape, attention_strength=attention)
                 except Exception as e:
                     raise RuntimeError(f"LTX Director Guide motion segment failed for {seg}: {e}") from e
 
