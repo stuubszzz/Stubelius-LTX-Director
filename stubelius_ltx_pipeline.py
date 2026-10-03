@@ -44,6 +44,9 @@ UPSCALERS = ["RTX VSR", "DLSS5 + Color Lock"]
 AUDIO_MODES = ["keep the seed's audio", "regenerate in the refine"]
 DLSS5_FACTORS = {1.5: "1.5x (Quality)", 1.724: "1.724x (Balanced)", 2.0: "2x (Performance)",
                  3.0: "3x (Ultra Performance)"}
+# ComfyUI-DLSS5-Enhancer's install_runtime.py asks for release tag "3.0", which doesn't exist (404).
+DLSS5_RUNTIME_URL = ("https://github.com/Merserk/dlss5-visual-enhancer/releases/download/v3.0/"
+                     "DLSS.5.Visual.Enhancer.v3.0.zip")
 VSR_MAX_SCALE = 4.0     # RTX VSR per pass; more runs in two passes
 # Final resolution: the value is the exact short side in pixels (None = keep the refined size).
 RESOLUTIONS = {
@@ -728,7 +731,15 @@ class StubeliusLTXFinish:
         if _cls("DLSS5EnhanceImages") is None:
             raise RuntimeError("[StubeliusLTXFinish] 'DLSS5 + Color Lock' needs ComfyUI-DLSS5-Enhancer installed. "
                                "Pick 'RTX VSR' or install it.")
-        enhanced = _dlss5(images, short_side / _short(images))
+        try:
+            enhanced = _dlss5(images, short_side / _short(images))
+        except RuntimeError as e:
+            if "install_runtime.py" not in str(e):
+                raise
+            raise RuntimeError(f"{e}\n\n[StubeliusLTXFinish] install_runtime.py's own download is broken (404); "
+                               f"give it the v3.0 release:\n    install_runtime.py --url {DLSS5_RUNTIME_URL}\n"
+                               "then restart ComfyUI. The later Visual Enhancer releases don't have the files "
+                               "the node runs on.") from e
         rest = short_side / _short(enhanced)
         if rest > 1.02:
             # past DLSS5's 3x: RTX VSR takes it the rest of the way, or a second DLSS5 pass when VSR
