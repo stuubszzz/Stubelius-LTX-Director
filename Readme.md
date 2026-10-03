@@ -51,6 +51,17 @@ Load the workflow and use Manager → **Install Missing Custom Nodes**, or insta
 | [ComfyUI-DLSS5-Enhancer](https://github.com/Blueforcer/ComfyUI-DLSS5-Enhancer) | DLSS5 upscaler |
 | [ComfyUI-GGUF](https://github.com/city96/ComfyUI-GGUF) | GGUF models |
 
+ComfyUI-DLSS5-Enhancer also needs its runtime. Its `install_runtime.py` asks GitHub for a release tag
+that doesn't exist (404), so give it the v3.0 download. From the `ComfyUI_windows_portable` folder:
+
+```
+python_embeded\python.exe ComfyUI\custom_nodes\ComfyUI-DLSS5-Enhancer\install_runtime.py --url https://github.com/Merserk/dlss5-visual-enhancer/releases/download/v3.0/DLSS.5.Visual.Enhancer.v3.0.zip
+```
+
+Then restart ComfyUI. Stay on v3.0: the later Visual Enhancer releases are a rebuilt app without the
+files the node runs on (its worker, ReShade and the RenoDX add-on), and their DLSS 5 model is the same.
+Install the node only from the link above; a copy of it on GitHub ships malware.
+
 ### Models
 
 Official files from [Lightricks/LTX-2.5](https://huggingface.co/Lightricks/LTX-2.5):
