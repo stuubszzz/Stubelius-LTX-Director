@@ -345,7 +345,7 @@ class LTXDirectorGuide:
                 "tile_overlap": ("INT", {"default": 64, "min": 16, "max": 256, "step": 16}),
                 "retake_mode": ("BOOLEAN", {"default": False, "tooltip": "Force Retake Mode. If false, it will still auto-detect Retake Mode from the timeline data."}),
                 "msr_strength": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.05, "tooltip": "Licon MSR only: per-stage reference strength override. 0 = use the Director's value (full pull, right for stage 1). On a refinement/upscale stage set ~0.4 to hold detail without the references repainting the opening (fixes stage-2 mist/ghosting)."}),
-                "msr_lora_name": (["None"] + loras, {"default": "None", "tooltip": "LTX-2.5 MSR LoRA (Licon V1) with reference_slot_embedding weights. Required when the Director's ref option is 'Licon MSR'. Independent of ic_lora_name, which stays free for union control."}),
+                "msr_lora_name": (["None"] + loras, {"default": "None", "tooltip": "LTX-2.5 MSR LoRA (Licon V2 or V1) with reference_slot_embedding weights. Required when the Director's ref option is 'Licon MSR'. Independent of ic_lora_name, which stays free for union control."}),
                 "msr_lora_strength": ("FLOAT", {"default": 1.0, "min": -100.0, "max": 100.0, "step": 0.01, "tooltip": "MSR LoRA model strength."}),
             }
         }
