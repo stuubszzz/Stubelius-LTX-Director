@@ -408,7 +408,7 @@ class StubeliusLTXSeedHunt:
                                    "tooltip": "First-pass scale. 0.5 recommended for IC-LoRA."}),
             "image_attention_strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
             "msr_strength": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.05}),
-            "msr_lora_name": (["None"] + loras, {"default": "None", "tooltip": "LTX-2.5 MSR LoRA (Licon V1). Required when the Director ref option is Licon MSR."}),
+            "msr_lora_name": (["None"] + loras, {"default": "None", "tooltip": "LTX-2.5 MSR LoRA (Licon V2 or V1). Required when the Director ref option is Licon MSR."}),
             "msr_lora_strength": ("FLOAT", {"default": 1.0, "min": -100.0, "max": 100.0, "step": 0.01}),
             "tile_size": ("INT", {"default": 512, "min": 64, "max": 1024, "step": 32}),
             "tile_overlap": ("INT", {"default": 64, "min": 16, "max": 256, "step": 16}),
