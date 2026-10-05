@@ -111,7 +111,7 @@ MotionGuideData = io.Custom("MOTION_GUIDE_DATA")
 # Slideshow length. 41 is the Licon training default (valid: 17 / 25 / 33 / 41).
 MSR_PREFIX_FRAMES = 41
 # latent_downscale_factor for the IC-LoRA reference frames. Tied to how the MSR LoRA was
-# trained; Licon MSR V1 uses full-resolution references (1.0). This is INDEPENDENT of any
+# trained; Licon MSR V1 and V2 use full-resolution references (1.0). This is INDEPENDENT of any
 # multi-stage scale_by / x2 upscaling, which LTXDirectorGuide handles downstream.
 MSR_LATENT_DOWNSCALE = 1.0
 
