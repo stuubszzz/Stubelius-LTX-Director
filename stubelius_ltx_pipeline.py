@@ -92,7 +92,7 @@ def _gguf(folder):
 
 
 def _msr_default(loras):
-    """An LTX 2.5 MSR LoRA when one is installed (Licon's LTX-2.5-Licon-MSR-V1). The 2.3 MSR LoRAs
+    """An LTX 2.5 MSR LoRA when one is installed (Licon's LTX-2.5-Licon-MSR-V2 or V1). The 2.3 MSR LoRAs
     lack the slot-embedding tensors the 2.5 engine needs, so they are never picked."""
     for name in loras:
         low = os.path.basename(name).lower()
@@ -358,7 +358,7 @@ class StubeliusLTXModels:
                     "IC-LoRA for the Director's motion / video guides (pose, depth, ...). none = off."}),
                 "ic_lora_strength": ("FLOAT", {"default": 0.6, "min": -2.0, "max": 2.0, "step": 0.05}),
                 "msr_lora": (loras, {"default": _msr_default(loras), "tooltip":
-                    "LTX 2.5 MSR LoRA (Licon LTX-2.5-Licon-MSR-V1), its own slot next to the IC-LoRA. Used in "
+                    "LTX 2.5 MSR LoRA (Licon LTX-2.5-Licon-MSR-V2 or V1), its own slot next to the IC-LoRA. Used in "
                     "both passes whenever the Director's reference option is Licon MSR; ignored otherwise."}),
                 "msr_lora_strength": ("FLOAT", {"default": 1.0, "min": -2.0, "max": 2.0, "step": 0.05, "tooltip":
                     "MSR LoRA strength on the seeds (first pass). The refine's is on the Output node, so "
