@@ -73,7 +73,7 @@ Official files from [Lightricks/LTX-2.5](https://huggingface.co/Lightricks/LTX-2
 | `models/vae` | [`ltx-2.5-video-vae-bf16.safetensors`](https://huggingface.co/Lightricks/LTX-2.5/resolve/main/vae/ltx-2.5-video-vae-bf16.safetensors), [`ltx-2.5-audio-vae-bf16.safetensors`](https://huggingface.co/Lightricks/LTX-2.5/resolve/main/vae/ltx-2.5-audio-vae-bf16.safetensors) |
 | `models/latent_upscale_models` | [`ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors`](https://huggingface.co/Lightricks/LTX-2.5/resolve/main/latent_upscale_models/ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors) |
 | `models/vae` | optional live preview: a tiny LTX VAE such as `taeltx2_3.safetensors`, picked as "live preview" on the Models node |
-| `models/loras` | optional, for the Director's Licon MSR reference option: Licon's LTX 2.5 MSR LoRA (`LTX-2.5-Licon-MSR-V1.safetensors`), picked as "msr lora" on the Models node. The LTX 2.3 MSR LoRAs don't work on 2.5 |
+| `models/loras` | optional, for the Director's Licon MSR reference option: Licon's LTX 2.5 MSR LoRA ([`LTX-2.5-Licon-MSR-V2.safetensors`](https://huggingface.co/LiconStudio/LTX-2.5-Multiple-Subject-Reference/resolve/main/LTX-2.5-Licon-MSR-V2.safetensors); V1 also works), picked as "msr lora" on the Models node. The LTX 2.3 MSR LoRAs don't work on 2.5 |
 
 2.5 needs the Gemma 4 text encoder and will not load a 2.3 one. RIFE downloads its checkpoint the
 first time a final fps above the Director's is used.
