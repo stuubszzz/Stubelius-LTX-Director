@@ -646,15 +646,22 @@ class StubeliusLTXFinish:
     CATEGORY = "StubeliusLTX"
 
     def run(self, takes, models, output, winner, unique_id=None):
+        # The "stubelius_note" UI entry is shown on the node by js/stubelius_ltx_finish_note.js.
+        n = takes["count"]
         if int(winner) == 0:
             from comfy_execution.graph import ExecutionBlocker
             log.info("[StubeliusLTXFinish] WINNER 0 = hold: %d seed(s) rendered, finish skipped. "
-                     "Set WINNER 1-%d and re-queue.", takes["count"], takes["count"])
-            return (ExecutionBlocker(None), ExecutionBlocker(None), ExecutionBlocker(None))
-        w = max(1, min(int(winner), takes["count"]))
+                     "Set WINNER 1-%d and re-queue.", n, n)
+            pick = "1" if n == 1 else f"1-{n}"
+            note = (f"Holding: {n} seed{'s' if n > 1 else ''} rendered, no final video yet.\n"
+                    f"Set WINNER to the one you want ({pick}) and run again. Only the finish runs: "
+                    "the seeds come from cache if nothing else changed.")
+            return {"ui": {"stubelius_note": [note], "stubelius_hold": [True]},
+                    "result": (ExecutionBlocker(None), ExecutionBlocker(None), ExecutionBlocker(None))}
+        w = max(1, min(int(winner), n))
         if w != winner:
             log.warning("[StubeliusLTXFinish] WINNER %d but only %d seed(s) rendered, using %d",
-                        winner, takes["count"], w)
+                        winner, n, w)
         o = output
         full_size = takes.get("scale", 0.5) >= 0.999
         if full_size:
@@ -685,7 +692,10 @@ class StubeliusLTXFinish:
         log.info("[StubeliusLTXFinish] winner %d (seed %d, %s/%s), %s, %s -> %dx%d @ %.3g fps, upscaler %s",
                  w, takes["seeds"][w - 1], sampler, scheduler, refine, o["resolution"], images.shape[2],
                  images.shape[1], fps, o["upscaler"] if upscaled else "none")
-        return (images, audio, float(fps))
+        note = f"Finished seed {w}: {images.shape[2]}x{images.shape[1]}, {fps:.3g} fps."
+        if w != winner:
+            note += f"\nWINNER {winner}, but only {n} seed{'s' if n > 1 else ''} rendered."
+        return {"ui": {"stubelius_note": [note]}, "result": (images, audio, float(fps))}
 
     @staticmethod
     @_holds_run_models(lambda takes, *a, **k: takes["model"])
